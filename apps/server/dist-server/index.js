@@ -101,7 +101,7 @@ var BlockId = {
   Planks: 8,
   Brick: 9,
   Glass: 10,
-  Snow: 11,
+  // 11 was Snow, removed from the game; never reassign this ID.
   Bedrock: 12,
   Sign: 13
 };
@@ -209,15 +209,6 @@ var BLOCKS = {
     replaceable: false,
     unbreakable: false,
     color: "#cfe8ef"
-  }),
-  [BlockId.Snow]: def({
-    id: BlockId.Snow,
-    name: "Snow",
-    solid: true,
-    opaque: true,
-    replaceable: false,
-    unbreakable: false,
-    color: "#f2f5f7"
   }),
   [BlockId.Bedrock]: def({
     id: BlockId.Bedrock,
@@ -402,7 +393,7 @@ var TerrainGenerator = class _TerrainGenerator {
     const moist = fbm2(s.moist, wx * 5e-3, wz * 5e-3, { octaves: 2 });
     let biome = "grass";
     if (temp > 0.62 && moist < 0.45) biome = "desert";
-    if (temp < 0.3 || h >= 48) biome = "snow";
+    if (temp < 0.3 || h >= 48) biome = "desert";
     return { h, biome };
   }
   /** Tree occupying this column, if any (deterministic per column). */
@@ -432,12 +423,10 @@ var TerrainGenerator = class _TerrainGenerator {
         const underwater = h <= SEA_LEVEL;
         let topBlock;
         let fillBlock;
-        if (biome === "desert") {
+        const beach = h > SEA_LEVEL && h <= SEA_LEVEL + 2;
+        if (biome === "desert" || beach) {
           topBlock = BlockId.Sand;
           fillBlock = BlockId.Sand;
-        } else if (biome === "snow") {
-          topBlock = BlockId.Snow;
-          fillBlock = BlockId.Dirt;
         } else {
           topBlock = BlockId.Grass;
           fillBlock = BlockId.Dirt;

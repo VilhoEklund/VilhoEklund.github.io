@@ -98,7 +98,7 @@ export class Interaction {
     if (y < 0 || y > 255) return;
     const current = this.world.getBlock(x, y, z);
     if (current !== BlockId.Air && current !== BlockId.Water) return;
-    if (playerIntersectsCell(this.player.pos.x, this.player.pos.y, this.player.pos.z, x, y, z)) {
+    if (playerIntersectsCell(this.player.pos.x, this.player.pos.y, this.player.pos.z, x, y, z, this.player.height)) {
       this.hooks.toast('Not enough room.', 'error');
       return;
     }

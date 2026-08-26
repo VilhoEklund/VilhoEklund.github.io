@@ -285,6 +285,7 @@ export function buildHelpOverlay(): HelpOverlay {
     ['1 – 0 / wheel', 'Select hotbar slot'],
     ['Space', 'Jump / swim up'],
     ['Shift', 'Sprint'],
+    ['C / Ctrl', 'Crouch'],
     ['T', 'Chat'],
     ['Tab (hold)', 'Online players'],
     ['H', 'Help'],
