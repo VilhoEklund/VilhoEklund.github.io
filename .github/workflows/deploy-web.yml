@@ -51,6 +51,9 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.custom_base }}" ]; then
             echo "path=${{ github.event.inputs.custom_base }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event.repository.name }}" == *.github.io ]]; then
+            # User/organization site: served at the domain root.
+            echo "path=/" >> "$GITHUB_OUTPUT"
           else
             echo "path=/${{ github.event.repository.name }}/" >> "$GITHUB_OUTPUT"
           fi

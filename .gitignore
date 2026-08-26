@@ -3,6 +3,7 @@ node_modules/
 
 # Builds
 dist/
+.vite/
 dist-ssr/
 *.tsbuildinfo
 
