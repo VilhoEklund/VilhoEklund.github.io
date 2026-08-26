@@ -66,7 +66,6 @@ describe('mesher uv mapping', () => {
       BlockId.Planks,
       BlockId.Brick,
       BlockId.Glass,
-      BlockId.Snow,
       BlockId.Bedrock,
       BlockId.Water,
     ];

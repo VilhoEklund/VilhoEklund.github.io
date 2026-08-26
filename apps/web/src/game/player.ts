@@ -15,7 +15,7 @@ export const PLAYER_HEIGHT = 1.8;
 export const EYE_HEIGHT = 1.62;
 
 const WALK_SPEED = 4.4;
-const SPRINT_SPEED = 28.0;
+const SPRINT_SPEED = 7.0;
 const GRAVITY = 24;
 const JUMP_VELOCITY = 8.6;
 const WATER_GRAVITY = 5;

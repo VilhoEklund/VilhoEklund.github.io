@@ -33,7 +33,7 @@ describe('terrain determinism', () => {
     expect(info).toEqual(g.columnInfo(1234, -5678));
     expect(info.h).toBeGreaterThan(0);
     expect(info.h).toBeLessThan(WORLD_HEIGHT);
-    expect(['grass', 'desert', 'snow']).toContain(info.biome);
+    expect(['grass', 'desert']).toContain(info.biome);
   });
 
   it('fills bedrock at y=0 everywhere in negative chunks', () => {

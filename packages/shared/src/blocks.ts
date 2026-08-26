@@ -15,7 +15,7 @@ export const BlockId = {
   Planks: 8,
   Brick: 9,
   Glass: 10,
-  Snow: 11,
+  // 11 was Snow, removed from the game; never reassign this ID.
   Bedrock: 12,
   Sign: 13,
 } as const;
@@ -147,15 +147,6 @@ export const BLOCKS: Record<number, BlockDef> = {
     replaceable: false,
     unbreakable: false,
     color: '#cfe8ef',
-  }),
-  [BlockId.Snow]: def({
-    id: BlockId.Snow,
-    name: 'Snow',
-    solid: true,
-    opaque: true,
-    replaceable: false,
-    unbreakable: false,
-    color: '#f2f5f7',
   }),
   [BlockId.Bedrock]: def({
     id: BlockId.Bedrock,

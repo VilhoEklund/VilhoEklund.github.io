@@ -3,7 +3,7 @@ import { BlockId } from './blocks.ts';
 import { blockIndex, spiralOffsets } from './coords.ts';
 import { fbm2, hash2f, hashInt, hashString, smoothstep } from './noise.ts';
 
-export type Biome = 'grass' | 'desert' | 'snow';
+export type Biome = 'grass' | 'desert';
 
 export interface ColumnInfo {
   /** Ground height: solid terrain occupies y in [0, h). */
@@ -82,7 +82,8 @@ export class TerrainGenerator {
 
     let biome: Biome = 'grass';
     if (temp > 0.62 && moist < 0.45) biome = 'desert';
-    if (temp < 0.3 || h >= 48) biome = 'snow';
+    // Cold and high-altitude ground is sandy too (Snow block was removed).
+    if (temp < 0.3 || h >= 48) biome = 'desert';
     return { h, biome };
   }
 
@@ -117,12 +118,11 @@ export class TerrainGenerator {
 
         let topBlock: number;
         let fillBlock: number;
-        if (biome === 'desert') {
+        // Beaches: low ground just above sea level is sandy regardless of biome.
+        const beach = h > SEA_LEVEL && h <= SEA_LEVEL + 2;
+        if (biome === 'desert' || beach) {
           topBlock = BlockId.Sand;
           fillBlock = BlockId.Sand;
-        } else if (biome === 'snow') {
-          topBlock = BlockId.Snow;
-          fillBlock = BlockId.Dirt;
         } else {
           topBlock = BlockId.Grass;
           fillBlock = BlockId.Dirt;

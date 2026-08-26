@@ -24,7 +24,6 @@ export type TileName =
   | 'planks'
   | 'brick'
   | 'glass'
-  | 'snow'
   | 'bedrock'
   | 'sign';
 
@@ -41,7 +40,6 @@ export const TILE_INDEX: Record<TileName, number> = {
   planks: 9,
   brick: 10,
   glass: 11,
-  snow: 12,
   bedrock: 13,
   sign: 14,
 };
@@ -58,7 +56,6 @@ export const BLOCK_TILES: Record<number, [TileName, TileName, TileName]> = {
   [BlockId.Planks]: ['planks', 'planks', 'planks'],
   [BlockId.Brick]: ['brick', 'brick', 'brick'],
   [BlockId.Glass]: ['glass', 'glass', 'glass'],
-  [BlockId.Snow]: ['snow', 'snow', 'snow'],
   [BlockId.Bedrock]: ['bedrock', 'bedrock', 'bedrock'],
   [BlockId.Sign]: ['sign', 'sign', 'sign'],
 };
@@ -233,11 +230,6 @@ const PAINTERS: Record<TileName, (ctx: PainterCtx) => void> = {
     setPx(c, 4, 2, [235, 248, 252], 255);
     setPx(c, 11, 10, [235, 248, 252], 255);
     void rng;
-  },
-  snow: ({ data, size, rng }) => {
-    const c: PainterCtx = { data, size, rng };
-    fillNoise(c, [240, 245, 250], 0.03);
-    speckle(c, [222, 230, 240], 14);
   },
   bedrock: ({ data, size, rng }) => {
     const c: PainterCtx = { data, size, rng };
