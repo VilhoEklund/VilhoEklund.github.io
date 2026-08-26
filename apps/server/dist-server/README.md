@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "eternal-blocks-server" generated at 2026-08-23T13:48:22.988Z.

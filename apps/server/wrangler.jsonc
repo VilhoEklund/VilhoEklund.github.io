@@ -1,0 +1,38 @@
+// Wrangler configuration for the Eternal Blocks server.
+// Deploy with: npx wrangler deploy   (see README for one-time setup)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "eternal-blocks-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-08-01",
+
+  // The single canonical world lives in this Durable Object class backed by
+  // embedded SQLite. There is intentionally no way for players to create or
+  // reset worlds.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ETERNAL_WORLD",
+        "class_name": "EternalWorld"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EternalWorld"]
+    }
+  ],
+
+  // Public, non-secret configuration. Replace ALLOWED_ORIGINS with your final
+  // GitHub Pages (or custom domain) origin before production deployment.
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
+    "WORLD_ID": "the-eternal-world"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

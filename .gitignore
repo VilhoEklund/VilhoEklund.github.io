@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# Local env files (placeholders only are committed as *.example)
+.env
+.env.local
+.env.*.local
+.dev.vars
+
+# Wrangler / Cloudflare local state
+.wrangler/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+
+# Coverage
+coverage/

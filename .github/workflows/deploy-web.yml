@@ -1,0 +1,81 @@
+name: Deploy web to GitHub Pages
+
+# Builds apps/web and publishes it to GitHub Pages.
+#
+# One-time setup (see README):
+#   1. Repo Settings → Pages → Source: "GitHub Actions".
+#   2. Add a repository secret VITE_GAME_SERVER_URL with your deployed
+#      worker endpoint, e.g. wss://eternal-blocks-server.<your-subdomain>.workers.dev/ws
+#
+# Custom domain:
+#   - Run this workflow via "Run workflow" and set the `custom_base` input to "/"
+#   - Commit a CNAME file into apps/web/public/ containing your domain,
+#     and configure DNS per GitHub's custom-domain docs.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      custom_base:
+        description: 'Base path override ("/" for a custom domain, empty = /<repo>/)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build static site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute base path
+        id: base
+        run: |
+          if [ -n "${{ github.event.inputs.custom_base }}" ]; then
+            echo "path=${{ github.event.inputs.custom_base }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/${{ github.event.repository.name }}/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build web client
+        run: npm run build:web
+        env:
+          VITE_BASE_PATH: ${{ steps.base.outputs.path }}
+          VITE_GAME_SERVER_URL: ${{ secrets.VITE_GAME_SERVER_URL }}
+
+      - name: Verify base-path build output
+        run: node scripts/check-pages-build.mjs "${{ steps.base.outputs.path }}"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

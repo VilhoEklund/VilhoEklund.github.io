@@ -1,0 +1,15 @@
+# Copy to .dev.vars for local `wrangler dev`. NEVER commit the real file.
+#
+# Comma-separated list of browser origins allowed to open WebSockets and call
+# admin endpoints from a browser. For production set this in the Wrangler
+# dashboard or via `npx wrangler secret put`/vars to your GitHub Pages origin.
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
+# Bearer token required for /export, /import and moderation endpoints.
+# Generate one with: node -e "console.log(crypto.randomUUID())"
+ADMIN_TOKEN=dev-admin-token-change-me
+
+# Optional: override the permanent world seed string. The seed is persisted on
+# first world initialization and never rotated afterwards; changing it here
+# after world creation has no effect (by design).
+SEED_STRING=

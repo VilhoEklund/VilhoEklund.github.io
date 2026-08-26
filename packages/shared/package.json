@@ -1,0 +1,13 @@
+{
+  "name": "@eternal-blocks/shared",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shared protocol, validation, constants and deterministic terrain generation for Eternal Blocks.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
