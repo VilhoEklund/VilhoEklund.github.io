@@ -60,7 +60,7 @@ function boot(): void {
     if (dot && statusText) {
       if (!config.serverUrl) {
         dot.className = 'server-dot ok';
-        statusText.textContent = ' local single-player mode';
+        statusText.textContent = ' local world · auto-saved';
       } else {
         const httpUrl = config.serverUrl.replace(/^ws/, 'http').replace(/\/ws$/, '/');
         fetch(httpUrl + 'stats')
@@ -159,7 +159,7 @@ function boot(): void {
           game?.hud.pushSystem(
             config.serverUrl
               ? 'Welcome to the eternal world. Be kind - everything persists.'
-              : 'Welcome to your local world. Changes last until you reload the page.',
+              : 'Welcome to your local world. Buildings are auto-saved in this browser.',
           );
           game?.hud.toast('Click to grab the mouse and play', 'good');
         },

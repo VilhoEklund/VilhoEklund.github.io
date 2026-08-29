@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   BlockId,
   CHUNK_SIZE,
+  DEFAULT_SEED_STRING,
   POS_SEND_INTERVAL_MS,
   TerrainGenerator,
   WORLD_HEIGHT,
@@ -10,6 +11,7 @@ import {
 } from '@eternal-blocks/shared';
 import { buildAtlas, type AtlasResult } from './textures.ts';
 import { WorldStore } from './world/worldStore.ts';
+import { LocalWorldPersistence } from './world/localPersistence.ts';
 import { ChunkManager } from './world/chunkManager.ts';
 import { LocalPlayer, Input } from './player.ts';
 import { Interaction } from './interaction.ts';
@@ -80,6 +82,8 @@ export class Game {
   private fpsValue = 60;
   private disposed = false;
   private spawnPoint = { x: 8.5, y: 40, z: 8.5 };
+  private localPersistence: LocalWorldPersistence | null = null;
+  private localSaveWarningShown = false;
 
   private readonly settings: Settings;
   private fixedAccum = 0;
@@ -217,8 +221,15 @@ export class Game {
   connect(helloPayloadName: string, playerId: string): void {
     const net = this.net;
     if (!this.opts.serverUrl) {
-      const generator = TerrainGenerator.fromSeedString('eternal-blocks-local-v1');
+      const generator = TerrainGenerator.fromSeedString(DEFAULT_SEED_STRING);
+      this.localPersistence = new LocalWorldPersistence(generator.seed);
       this.startWorld(generator.seed, generator.findSpawn(), []);
+      const restoredChunks = this.localPersistence.loadInto(this.world);
+      if (restoredChunks > 0) {
+        this.hud.pushSystem(
+          `Restored your saved buildings from ${restoredChunks} edited chunk${restoredChunks === 1 ? '' : 's'}.`,
+        );
+      }
       this.hooks.onStatus('ok', 'Local');
       this.finishInitialLoad();
       return;
@@ -348,6 +359,16 @@ export class Game {
         {
           toast: (m, k) => this.hud.toast(m, k),
           markDirty: (x, y, z) => this.chunks.markDirtyAt(x, y, z),
+          persistLocal: (x, z) => {
+            const saved = this.localPersistence?.saveChunkAt(this.world, x, z) ?? false;
+            if (!saved && !this.localSaveWarningShown) {
+              this.localSaveWarningShown = true;
+              this.hud.toast(
+                'Browser storage is unavailable; this session cannot be saved.',
+                'error',
+              );
+            }
+          },
           onSignPlaced: (cell) => {
             this.releasePointerForModal();
             const sign = this.world.signs.get(`${cell.x},${cell.y},${cell.z}`);

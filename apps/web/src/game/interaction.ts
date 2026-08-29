@@ -15,6 +15,7 @@ import type { SignsRenderer } from './signsRenderer.ts';
 export interface InteractionHooks {
   toast: (msg: string, kind?: 'info' | 'error' | 'good') => void;
   markDirty: (x: number, y: number, z: number) => void;
+  persistLocal: (x: number, z: number) => void;
   onSignPlaced: (cell: { x: number; y: number; z: number }) => void;
 }
 
@@ -97,7 +98,11 @@ export class Interaction {
     const eid = newEid();
     const frame: ClientMessage = { t: 'edit', eid, action: 'break', x: hit.x, y: hit.y, z: hit.z };
     this.applyLocal(hit.x, hit.y, hit.z, BlockId.Air);
-    if (this.opts.localOnly) return;
+    if (this.opts.localOnly) {
+      if (current === BlockId.Sign) this.signs.removeAt(hit.x, hit.y, hit.z);
+      this.hooks.persistLocal(hit.x, hit.z);
+      return;
+    }
     this.pending.set(eid, {
       eid,
       kind: 'break',
@@ -152,6 +157,7 @@ export class Interaction {
           updatedAt: Date.now(),
           rot,
         });
+        this.hooks.persistLocal(x, z);
         this.hooks.onSignPlaced({ x, y, z });
         return;
       }
@@ -178,7 +184,10 @@ export class Interaction {
       this.net.send(signFrame);
       this.hooks.onSignPlaced({ x, y, z });
     }
-    if (this.opts.localOnly) return;
+    if (this.opts.localOnly) {
+      this.hooks.persistLocal(x, z);
+      return;
+    }
     this.pending.set(eid, {
       eid,
       kind: 'place',
@@ -197,6 +206,7 @@ export class Interaction {
     if (this.opts.localOnly) {
       const existing = this.world.signs.get(`${cell.x},${cell.y},${cell.z}`);
       if (existing) this.signs.upsert({ ...existing, text, updatedAt: Date.now() });
+      this.hooks.persistLocal(cell.x, cell.z);
       return;
     }
     const frame: ClientMessage = {
@@ -230,6 +240,7 @@ export class Interaction {
     if (this.opts.localOnly) {
       this.signs.removeAt(cell.x, cell.y, cell.z);
       this.applyLocal(cell.x, cell.y, cell.z, BlockId.Air);
+      this.hooks.persistLocal(cell.x, cell.z);
       return;
     }
     const frame: ClientMessage = {

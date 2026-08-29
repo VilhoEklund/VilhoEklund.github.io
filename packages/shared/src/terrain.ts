@@ -91,7 +91,11 @@ export class TerrainGenerator {
   treeAt(wx: number, wz: number, info?: ColumnInfo): TreeInfo | null {
     const col = info ?? this.columnInfo(wx, wz);
     if (col.biome !== 'grass' || col.h <= SEA_LEVEL) return null;
-    const forest = smoothstep(0.42, 0.68, fbm2(this.s.forest, wx * 0.01, wz * 0.01, { octaves: 2 }));
+    const forest = smoothstep(
+      0.42,
+      0.68,
+      fbm2(this.s.forest, wx * 0.01, wz * 0.01, { octaves: 2 }),
+    );
     const density = 0.0018 + forest * 0.026;
     if (hash2f(this.s.tree, wx, wz) >= density) return null;
     const r = hashInt(Math.imul(wx, 0x27d4eb2d) ^ Math.imul(wz, 0x165667b1) ^ this.s.tree);
@@ -161,7 +165,14 @@ export class TerrainGenerator {
     }
   }
 
-  private writeTree(data: Uint8Array, cx: number, cz: number, wx: number, wz: number, tree: TreeInfo): void {
+  private writeTree(
+    data: Uint8Array,
+    cx: number,
+    cz: number,
+    wx: number,
+    wz: number,
+    tree: TreeInfo,
+  ): void {
     const baseX = cx * CHUNK_SIZE;
     const baseZ = cz * CHUNK_SIZE;
     const setIfAir = (x: number, y: number, z: number, b: number): void => {
@@ -203,19 +214,69 @@ export class TerrainGenerator {
     setIfAir(wx, topY + 3, wz, BlockId.Leaves);
   }
 
-  /** Find a pleasant land spawn deterministically (spiral search from origin). */
+  /**
+   * Find a scenic, buildable spawn deterministically.
+   *
+   * Candidates must be grassy, comfortably inland, clear of nearby trees,
+   * and reasonably flat across a 13x13 area. We score the whole search area
+   * rather than accepting the first valid column so a tiny beach or island
+   * near the origin cannot become the permanent spawn.
+   */
   findSpawn(maxRadius = 96): { x: number; y: number; z: number } {
-    for (const [dx, dz] of spiralOffsets(maxRadius)) {
-      const wx = dx;
-      const wz = dz;
-      const info = this.columnInfo(wx, wz);
-      if (info.h <= SEA_LEVEL + 1 || info.h >= WORLD_HEIGHT - 16) continue;
-      if (this.treeAt(wx, wz, info)) continue;
-      // Avoid spawning inside a neighbouring tree trunk/canopy cell.
-      if (this.treeAt(wx + 1, wz) || this.treeAt(wx - 1, wz)) continue;
-      if (this.treeAt(wx, wz + 1) || this.treeAt(wx, wz - 1)) continue;
-      return { x: wx + 0.5, y: info.h, z: wz + 0.5 };
+    const sampleOffsets = [-6, -3, 0, 3, 6];
+    let best: { x: number; y: number; z: number; score: number } | null = null;
+
+    for (const [wx, wz] of spiralOffsets(maxRadius)) {
+      // Sampling every other column keeps startup quick while retaining a
+      // dense enough search for a good clearing.
+      if ((wx & 1) !== 0 || (wz & 1) !== 0) continue;
+
+      const center = this.columnInfo(wx, wz);
+      if (center.biome !== 'grass') continue;
+      if (center.h <= SEA_LEVEL + 4 || center.h >= WORLD_HEIGHT - 18) continue;
+
+      let minH = center.h;
+      let maxH = center.h;
+      let heightDelta = 0;
+      let suitable = true;
+      for (const dz of sampleOffsets) {
+        for (const dx of sampleOffsets) {
+          const sample = this.columnInfo(wx + dx, wz + dz);
+          if (sample.h <= SEA_LEVEL + 2) {
+            suitable = false;
+            break;
+          }
+          minH = Math.min(minH, sample.h);
+          maxH = Math.max(maxH, sample.h);
+          heightDelta += Math.abs(sample.h - center.h);
+        }
+        if (!suitable) break;
+      }
+      if (!suitable || maxH - minH > 3) continue;
+
+      // Leave a tree-free 5x5 clearing for the player and first building.
+      for (let dz = -2; dz <= 2 && suitable; dz++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (this.treeAt(wx + dx, wz + dz)) {
+            suitable = false;
+            break;
+          }
+        }
+      }
+      if (!suitable) continue;
+
+      const distance = Math.hypot(wx, wz);
+      const score =
+        200 -
+        (maxH - minH) * 35 -
+        heightDelta * 1.5 -
+        Math.abs(center.h - (SEA_LEVEL + 10)) * 2 -
+        distance * 0.08;
+      if (!best || score > best.score) {
+        best = { x: wx + 0.5, y: center.h, z: wz + 0.5, score };
+      }
     }
-    return { x: 0.5, y: WORLD_HEIGHT / 2, z: 0.5 };
+
+    return best ?? { x: 0.5, y: WORLD_HEIGHT / 2, z: 0.5 };
   }
 }

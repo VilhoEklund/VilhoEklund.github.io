@@ -18,7 +18,7 @@ export const PROTOCOL_VERSION = 1;
 export const TERRAIN_VERSION = 1;
 
 /** Default seed string. Persisted on first world initialization; never rotated. */
-export const DEFAULT_SEED_STRING = 'eternal-blocks/primeval/1';
+export const DEFAULT_SEED_STRING = 'eternal-blocks/scenic-highlands/2';
 
 /** Horizontal chunk edge length (blocks). */
 export const CHUNK_SIZE = 16;

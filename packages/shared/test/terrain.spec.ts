@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TerrainGenerator } from '../src/terrain.ts';
-import { CHUNK_SIZE, SEA_LEVEL, WORLD_HEIGHT } from '../src/constants.ts';
+import { CHUNK_SIZE, DEFAULT_SEED_STRING, SEA_LEVEL, WORLD_HEIGHT } from '../src/constants.ts';
 import { BlockId } from '../src/blocks.ts';
 import { blockIndex, parseChunkKey } from '../src/coords.ts';
 
@@ -105,14 +105,24 @@ describe('terrain determinism', () => {
     expect(data[blockIndex(lx, capY, lz)]).toBe(BlockId.Leaves);
   });
 
-  it('findSpawn returns land above sea level with headroom', () => {
-    const g = TerrainGenerator.fromSeedString('eternal-blocks/primeval/1');
+  it('findSpawn returns a flat inland grass clearing with headroom', () => {
+    const g = TerrainGenerator.fromSeedString(DEFAULT_SEED_STRING);
     const spawn = g.findSpawn();
     const col = g.columnInfo(Math.floor(spawn.x), Math.floor(spawn.z));
-    expect(col.h).toBeGreaterThan(SEA_LEVEL);
+    expect(col.biome).toBe('grass');
+    expect(col.h).toBeGreaterThan(SEA_LEVEL + 4);
     expect(spawn.y).toBe(col.h);
     // No tree at the spawn column.
     expect(g.treeAt(Math.floor(spawn.x), Math.floor(spawn.z))).toBeNull();
+
+    const heights: number[] = [];
+    for (const dz of [-6, -3, 0, 3, 6]) {
+      for (const dx of [-6, -3, 0, 3, 6]) {
+        heights.push(g.columnInfo(Math.floor(spawn.x) + dx, Math.floor(spawn.z) + dz).h);
+      }
+    }
+    expect(Math.min(...heights)).toBeGreaterThan(SEA_LEVEL + 2);
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(3);
   });
 });
 

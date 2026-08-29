@@ -5,7 +5,8 @@ Three.js, Vite, and an optional Cloudflare Worker multiplayer server.
 
 The GitHub Pages build is playable without a backend. When
 `VITE_GAME_SERVER_URL` is not configured, the client starts a local
-single-player world. Local changes currently last until the page is reloaded.
+single-player world. Block edits and signs are auto-saved in that browser and
+restored after refreshing or reopening the site.
 
 ## Local development
 

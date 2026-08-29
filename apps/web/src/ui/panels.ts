@@ -101,7 +101,7 @@ export function buildTitleScreen(opts: {
   dot.id = 'title-server-dot';
   const statusText = document.createElement('span');
   statusText.id = 'title-server-status';
-  statusText.textContent = opts.online ? ' checking server…' : ' local single-player mode';
+  statusText.textContent = opts.online ? ' checking server…' : ' local world · auto-saved';
   footer.append(statusText);
   footer.appendChild(document.createTextNode('  ·  original game · no assets from other games'));
 

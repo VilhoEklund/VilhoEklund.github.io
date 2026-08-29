@@ -29,6 +29,7 @@
   // GitHub Pages (or custom domain) origin before production deployment.
   "vars": {
     "ALLOWED_ORIGINS": "https://vilhoeklund.github.io,http://localhost:5173,http://127.0.0.1:5173",
+    "SEED_STRING": "eternal-blocks/scenic-highlands/2",
     "WORLD_ID": "the-eternal-world",
   },
 

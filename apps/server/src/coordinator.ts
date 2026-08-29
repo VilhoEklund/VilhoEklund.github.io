@@ -77,6 +77,7 @@ export class WorldCoordinator {
   private readonly handlersByPlayer = new Map<string, ConnectionHandler>();
   readonly chunkSubs = new Map<string, Set<string>>();
   private readonly terrainCache = new Map<string, Uint8Array>();
+  private spawnCache: { x: number; y: number; z: number } | null = null;
   readonly subscribeRadius: number;
   private readonly staleMs: number;
   sweepCounter = 0;
@@ -131,7 +132,9 @@ export class WorldCoordinator {
   }
 
   spawnPoint(): { x: number; y: number; z: number } {
-    return this.generator ? this.generator.findSpawn() : { x: 0.5, y: 40, z: 0.5 };
+    if (!this.generator) return { x: 0.5, y: 40, z: 0.5 };
+    this.spawnCache ??= this.generator.findSpawn();
+    return this.spawnCache;
   }
 
   // ---------------------------------------------------------------------------
@@ -279,7 +282,11 @@ export class ConnectionHandler {
     if (this.playerId) this.coord.unregister(this.playerId, this);
   }
 
-  private sendError(code: Extract<ServerMessage, { t: 'error' }>['code'], msg: string, ref?: string): void {
+  private sendError(
+    code: Extract<ServerMessage, { t: 'error' }>['code'],
+    msg: string,
+    ref?: string,
+  ): void {
     this.send(ref === undefined ? { t: 'error', code, msg } : { t: 'error', code, msg, ref });
   }
 
@@ -367,7 +374,10 @@ export class ConnectionHandler {
 
   private async handleHello(msg: Extract<ClientMessage, { t: 'hello' }>): Promise<void> {
     if (this.coord.worldLocked) {
-      this.sendError('world_locked', 'the world was created with a different terrain generator version');
+      this.sendError(
+        'world_locked',
+        'the world was created with a different terrain generator version',
+      );
       this.closed = true;
       try {
         this.socket.close(CLOSE_CODES.protocolMismatch, 'world locked');
@@ -386,11 +396,10 @@ export class ConnectionHandler {
     this.conn = {
       playerId: msg.playerId,
       name: msg.name,
-      lastPos:
-        (() => {
-          const lp = this.coord.store.lastKnownPosition(msg.playerId);
-          return lp ? { ...lp, yaw: 0, pitch: 0 } : null;
-        })(),
+      lastPos: (() => {
+        const lp = this.coord.store.lastKnownPosition(msg.playerId);
+        return lp ? { ...lp, yaw: 0, pitch: 0 } : null;
+      })(),
       lastPersistAt: 0,
       buckets: this.makeBuckets(),
       strikes: 0,
@@ -603,9 +612,20 @@ export class ConnectionHandler {
         t: 'signApplied',
         eid: `${msg.eid}:cascade`,
         op: 'remove',
-        sign: { x: msg.x, y: msg.y, z: msg.z, text: '', authorId: '', authorName: '', updatedAt: 0 },
+        sign: {
+          x: msg.x,
+          y: msg.y,
+          z: msg.z,
+          text: '',
+          authorId: '',
+          authorName: '',
+          updatedAt: 0,
+        },
       };
-      this.coord.broadcastToChunkSubscribers(chunkKey(chunkCoord(msg.x), chunkCoord(msg.z)), signMsg);
+      this.coord.broadcastToChunkSubscribers(
+        chunkKey(chunkCoord(msg.x), chunkCoord(msg.z)),
+        signMsg,
+      );
     }
   }
 
@@ -624,7 +644,12 @@ export class ConnectionHandler {
     // Idempotent retry for sign operations.
     if (this.coord.store.hasEdit(msg.eid)) {
       const stored = this.coord.store.getSign(msg.x, msg.y, msg.z);
-      this.send({ t: 'signApplied', eid: msg.eid, op: msg.op, sign: stored ?? placeholderSign(msg, conn) });
+      this.send({
+        t: 'signApplied',
+        eid: msg.eid,
+        op: msg.op,
+        sign: stored ?? placeholderSign(msg, conn),
+      });
       return;
     }
     if (!this.validateReach(msg.x, msg.y, msg.z)) return;
@@ -655,13 +680,26 @@ export class ConnectionHandler {
 
     if (result.duplicate) {
       const stored = this.coord.store.getSign(msg.x, msg.y, msg.z);
-      this.send({ t: 'signApplied', eid: msg.eid, op: msg.op, sign: stored ?? placeholderSign(msg, conn) });
+      this.send({
+        t: 'signApplied',
+        eid: msg.eid,
+        op: msg.op,
+        sign: stored ?? placeholderSign(msg, conn),
+      });
       return;
     }
 
     const sign: SignInfo =
       msg.op === 'remove'
-        ? { x: msg.x, y: msg.y, z: msg.z, text: '', authorId: existing?.authorId ?? '', authorName: '', updatedAt: 0 }
+        ? {
+            x: msg.x,
+            y: msg.y,
+            z: msg.z,
+            text: '',
+            authorId: existing?.authorId ?? '',
+            authorName: '',
+            updatedAt: 0,
+          }
         : (this.coord.store.getSign(msg.x, msg.y, msg.z) ?? placeholderSign(msg, conn));
 
     const out: Extract<ServerMessage, { t: 'signApplied' }> = {
@@ -690,10 +728,7 @@ export class ConnectionHandler {
   }
 }
 
-function placeholderSign(
-  msg: { x: number; y: number; z: number },
-  conn: ConnState,
-): SignInfo {
+function placeholderSign(msg: { x: number; y: number; z: number }, conn: ConnState): SignInfo {
   return {
     x: msg.x,
     y: msg.y,
