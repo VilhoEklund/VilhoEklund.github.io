@@ -253,6 +253,7 @@ export class Game {
           msg.spawn,
           msg.players.filter((p) => p.id !== msg.playerId),
         );
+        this.hooks.onStatus('ok', 'Online');
         this.hadWelcome = true;
         break;
       }
