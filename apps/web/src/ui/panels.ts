@@ -29,6 +29,7 @@ export interface TitleScreen {
 
 export function buildTitleScreen(opts: {
   initialName: string;
+  online: boolean;
   onPlay: (name: string) => void;
 }): TitleScreen {
   const root = el('div', 'screen');
@@ -37,7 +38,9 @@ export function buildTitleScreen(opts: {
   const logo = el('div', 'logo', root);
   logo.textContent = 'Eternal Blocks';
   const tagline = el('div', 'tagline', root);
-  tagline.textContent = 'one permanent world · built together';
+  tagline.textContent = opts.online
+    ? 'one permanent world · built together'
+    : 'a local voxel world · ready to explore';
 
   const card = el('div', 'panel-card glass glass-strong', root);
 
@@ -60,9 +63,16 @@ export function buildTitleScreen(opts: {
 
   const controlsHint = el('div', 'hint', card);
   controlsHint.append(
-    textNode('Move '), kbd('WASD'), textNode(' · Jump '), kbd('Space'),
-    textNode(' · Break '), kbd('LMB'), textNode(' · Place '), kbd('RMB'),
-    textNode(' · Chat '), kbd('T'),
+    textNode('Move '),
+    kbd('WASD'),
+    textNode(' · Jump '),
+    kbd('Space'),
+    textNode(' · Break '),
+    kbd('LMB'),
+    textNode(' · Place '),
+    kbd('RMB'),
+    textNode(' · Chat '),
+    kbd('T'),
   );
 
   const submit = (): void => {
@@ -91,7 +101,7 @@ export function buildTitleScreen(opts: {
   dot.id = 'title-server-dot';
   const statusText = document.createElement('span');
   statusText.id = 'title-server-status';
-  statusText.textContent = ' checking server…';
+  statusText.textContent = opts.online ? ' checking server…' : ' local single-player mode';
   footer.append(statusText);
   footer.appendChild(document.createTextNode('  ·  original game · no assets from other games'));
 
@@ -203,18 +213,42 @@ export function buildPauseMenu(settings: Settings): PauseMenu {
 
   const draft: Settings = { ...settings };
 
-  mkRange('Mouse sensitivity', 0.2, 2.5, 0.05, settings.sensitivity, (v) => v.toFixed(2), (v) => {
-    draft.sensitivity = v;
-    fireChange();
-  });
-  mkRange('Render distance', RENDER_DISTANCE_MIN, RENDER_DISTANCE_MAX, 1, settings.renderDistance, (v) => `${v} ch`, (v) => {
-    draft.renderDistance = v;
-    fireChange();
-  });
-  mkRange('Field of view', 60, 110, 1, settings.fov, (v) => `${v}°`, (v) => {
-    draft.fov = v;
-    fireChange();
-  });
+  mkRange(
+    'Mouse sensitivity',
+    0.2,
+    2.5,
+    0.05,
+    settings.sensitivity,
+    (v) => v.toFixed(2),
+    (v) => {
+      draft.sensitivity = v;
+      fireChange();
+    },
+  );
+  mkRange(
+    'Render distance',
+    RENDER_DISTANCE_MIN,
+    RENDER_DISTANCE_MAX,
+    1,
+    settings.renderDistance,
+    (v) => `${v} ch`,
+    (v) => {
+      draft.renderDistance = v;
+      fireChange();
+    },
+  );
+  mkRange(
+    'Field of view',
+    60,
+    110,
+    1,
+    settings.fov,
+    (v) => `${v}°`,
+    (v) => {
+      draft.fov = v;
+      fireChange();
+    },
+  );
 
   const toggleRow = el('div', 'toggle-row', grid);
   const toggleLabel = document.createElement('span');

@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import { DEFAULT_SETTINGS, loadSettings } from '../src/identity.ts';
 
 describe('config', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it('uses the env-provided server URL when present', () => {
     const c = loadConfig({ VITE_GAME_SERVER_URL: 'wss://example.workers.dev/ws' });
     expect(c.serverUrl).toBe('wss://example.workers.dev/ws');
@@ -13,6 +15,12 @@ describe('config', () => {
     const c = loadConfig({});
     expect(typeof c.serverUrl).toBe('string');
     expect(c.e2e).toBe(false);
+  });
+
+  it('can force local mode even when a server URL is configured', () => {
+    vi.stubGlobal('location', new URL('https://example.com/?__local__'));
+    const c = loadConfig({ VITE_GAME_SERVER_URL: 'wss://example.workers.dev/ws' });
+    expect(c.serverUrl).toBe('');
   });
 });
 

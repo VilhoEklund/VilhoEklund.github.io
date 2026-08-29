@@ -10,16 +10,23 @@ export interface AppConfig {
 function isLocalHost(): boolean {
   return (
     typeof location !== 'undefined' &&
-    (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '[::1]')
+    (location.hostname === 'localhost' ||
+      location.hostname === '127.0.0.1' ||
+      location.hostname === '[::1]')
   );
 }
 
-export function loadConfig(env: Record<string, string | undefined> = import.meta.env as never): AppConfig {
+export function loadConfig(
+  env: Record<string, string | undefined> = import.meta.env as never,
+): AppConfig {
+  const query =
+    typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
   let url = (env['VITE_GAME_SERVER_URL'] ?? '').trim();
+  // Useful for testing or playing locally without starting the Worker.
+  if (query.has('__local__')) url = '';
   // Convenience for local development only; production builds must set the env var.
-  if (!url && isLocalHost()) url = 'ws://localhost:8787/ws';
-  const e2e =
-    typeof location !== 'undefined' && new URLSearchParams(location.search).has('__e2e__');
+  else if (!url && isLocalHost()) url = 'ws://localhost:8787/ws';
+  const e2e = query.has('__e2e__');
   return { serverUrl: url, e2e };
 }
 

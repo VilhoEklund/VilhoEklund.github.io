@@ -3,6 +3,7 @@ import {
   BlockId,
   CHUNK_SIZE,
   POS_SEND_INTERVAL_MS,
+  TerrainGenerator,
   WORLD_HEIGHT,
   type PlayerRosterEntry,
   type ServerMessage,
@@ -100,7 +101,12 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.camera = new THREE.PerspectiveCamera(this.settings.fov, window.innerWidth / window.innerHeight, 0.1, 600);
+    this.camera = new THREE.PerspectiveCamera(
+      this.settings.fov,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      600,
+    );
     this.scene.background = new THREE.Color(SKY_COLOR);
 
     this.atlas = buildAtlas();
@@ -178,7 +184,11 @@ export class Game {
 
     // Target-block highlight.
     const hlGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
-    const hlMat = new THREE.LineBasicMaterial({ color: 0x10141c, transparent: true, opacity: 0.55 });
+    const hlMat = new THREE.LineBasicMaterial({
+      color: 0x10141c,
+      transparent: true,
+      opacity: 0.55,
+    });
     this.highlight = new THREE.LineSegments(hlGeo, hlMat);
     this.highlight.visible = false;
     this.scene.add(this.highlight);
@@ -206,6 +216,13 @@ export class Game {
 
   connect(helloPayloadName: string, playerId: string): void {
     const net = this.net;
+    if (!this.opts.serverUrl) {
+      const generator = TerrainGenerator.fromSeedString('eternal-blocks-local-v1');
+      this.startWorld(generator.seed, generator.findSpawn(), []);
+      this.hooks.onStatus('ok', 'Local');
+      this.finishInitialLoad();
+      return;
+    }
     net.events.on('message', (msg) => this.onServerMessage(msg));
     net.events.on('state', ({ state }) => {
       if (!this.playing) return;
@@ -220,7 +237,11 @@ export class Game {
   private onServerMessage(msg: ServerMessage): void {
     switch (msg.t) {
       case 'welcome': {
-        this.startWorld(msg.seed, msg.spawn, msg.players.filter((p) => p.id !== msg.playerId));
+        this.startWorld(
+          msg.seed,
+          msg.spawn,
+          msg.players.filter((p) => p.id !== msg.playerId),
+        );
         this.hadWelcome = true;
         break;
       }
@@ -232,7 +253,10 @@ export class Game {
         this.world.applySnapshot(msg.cx, msg.cz, msg.overrides, msg.signs);
         this.receivedChunks++;
         if (this.initialLoading && this.expectedChunks > 0) {
-          this.hooks.onProgress(Math.min(0.98, this.receivedChunks / this.expectedChunks), `syncing world ${this.receivedChunks}/${this.expectedChunks}`);
+          this.hooks.onProgress(
+            Math.min(0.98, this.receivedChunks / this.expectedChunks),
+            `syncing world ${this.receivedChunks}/${this.expectedChunks}`,
+          );
         }
         break;
       }
@@ -253,7 +277,8 @@ export class Game {
         break;
       }
       case 'ps':
-        if (msg.id !== this.opts.selfId) this.remotes.onState(msg.id, msg.x, msg.y, msg.z, msg.yaw, msg.pitch);
+        if (msg.id !== this.opts.selfId)
+          this.remotes.onState(msg.id, msg.x, msg.y, msg.z, msg.yaw, msg.pitch);
         break;
       case 'blockApplied':
         this.interaction.onBlockApplied(msg);
@@ -274,7 +299,11 @@ export class Game {
     }
   }
 
-  private startWorld(seed: number, spawn: { x: number; y: number; z: number }, roster: PlayerRosterEntry[]): void {
+  private startWorld(
+    seed: number,
+    spawn: { x: number; y: number; z: number },
+    roster: PlayerRosterEntry[],
+  ): void {
     const isResync = this.hadWelcome || this.playing;
 
     if (isResync) {
@@ -287,7 +316,11 @@ export class Game {
     if (!isResync) {
       this.world = new WorldStore(seed);
       const materials = {
-        opaque: new THREE.MeshLambertMaterial({ map: this.atlas.texture, vertexColors: true, alphaTest: 0.5 }),
+        opaque: new THREE.MeshLambertMaterial({
+          map: this.atlas.texture,
+          vertexColors: true,
+          alphaTest: 0.5,
+        }),
         water: new THREE.MeshLambertMaterial({
           map: this.atlas.texture,
           vertexColors: true,
@@ -296,21 +329,37 @@ export class Game {
           depthWrite: false,
         }),
       };
-      this.chunks = new ChunkManager(this.world, materials, this.settings.shadows, this.settings.renderDistance);
+      this.chunks = new ChunkManager(
+        this.world,
+        materials,
+        this.settings.shadows,
+        this.settings.renderDistance,
+      );
       this.scene.add(this.chunks.group);
       this.player = new LocalPlayer(this.world);
       this.signsR = new SignsRenderer(this.world);
       this.scene.add(this.signsR.group);
       this.scene.add(this.remotes.group);
-      this.interaction = new Interaction(this.world, this.net, this.signsR, this.player, {
-        toast: (m, k) => this.hud.toast(m, k),
-        markDirty: (x, y, z) => this.chunks.markDirtyAt(x, y, z),
-        onSignPlaced: (cell) => {
-          this.releasePointerForModal();
-          const sign = this.world.signs.get(`${cell.x},${cell.y},${cell.z}`);
-          signModalHost?.(cell, 'create', sign);
+      this.interaction = new Interaction(
+        this.world,
+        this.net,
+        this.signsR,
+        this.player,
+        {
+          toast: (m, k) => this.hud.toast(m, k),
+          markDirty: (x, y, z) => this.chunks.markDirtyAt(x, y, z),
+          onSignPlaced: (cell) => {
+            this.releasePointerForModal();
+            const sign = this.world.signs.get(`${cell.x},${cell.y},${cell.z}`);
+            signModalHost?.(cell, 'create', sign);
+          },
         },
-      });
+        {
+          localOnly: !this.opts.serverUrl,
+          playerId: this.opts.selfId,
+          playerName: this.opts.selfName,
+        },
+      );
       this.hud.selectSlot(0);
     }
 

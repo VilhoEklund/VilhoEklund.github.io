@@ -10,7 +10,7 @@
     "apps/*"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "dev:web": "npm run dev -w apps/web",
@@ -25,7 +25,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:pages-build": "node scripts/check-pages-build.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build:server && npm run build:web && node scripts/check-pages-build.mjs"
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run check:deploy -w apps/server && npm run build:web && node scripts/check-pages-build.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

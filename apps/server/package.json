@@ -12,7 +12,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "build": "tsc --noEmit",
-    "check:deploy": "wrangler deploy --dry-run --outdir dist-server",
+    "check:deploy": "wrangler deploy --dry-run --outdir .wrangler/tmp/deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

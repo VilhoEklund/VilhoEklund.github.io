@@ -45,6 +45,7 @@ function boot(): void {
     const identity = loadIdentity();
     const title = buildTitleScreen({
       initialName: identity.name,
+      online: Boolean(config.serverUrl),
       onPlay(name) {
         saveName(name);
         title.destroy();
@@ -58,8 +59,8 @@ function boot(): void {
     const statusText = document.getElementById('title-server-status');
     if (dot && statusText) {
       if (!config.serverUrl) {
-        dot.className = 'server-dot bad';
-        statusText.textContent = ' no game server configured';
+        dot.className = 'server-dot ok';
+        statusText.textContent = ' local single-player mode';
       } else {
         const httpUrl = config.serverUrl.replace(/^ws/, 'http').replace(/\/ws$/, '/');
         fetch(httpUrl + 'stats')
@@ -67,7 +68,9 @@ function boot(): void {
           .then((j: { online?: number }) => {
             dot.className = 'server-dot ok';
             statusText.textContent =
-              typeof j.online === 'number' ? ` ${j.online} online now · join them` : ' server reachable';
+              typeof j.online === 'number'
+                ? ` ${j.online} online now · join them`
+                : ' server reachable';
           })
           .catch(() => {
             dot.className = 'server-dot bad';
@@ -153,7 +156,11 @@ function boot(): void {
         },
         onFirstSyncDone() {
           loading.root.classList.add('hidden');
-          game?.hud.pushSystem('Welcome to the eternal world. Be kind - everything persists.');
+          game?.hud.pushSystem(
+            config.serverUrl
+              ? 'Welcome to the eternal world. Be kind - everything persists.'
+              : 'Welcome to your local world. Changes last until you reload the page.',
+          );
           game?.hud.toast('Click to grab the mouse and play', 'good');
         },
         onFatal(message) {
@@ -189,7 +196,8 @@ function boot(): void {
     });
 
     game.hud.onChatSend = (text) => {
-      game!.net.send({ t: 'chat', text });
+      if (config.serverUrl) game!.net.send({ t: 'chat', text });
+      else game!.hud.pushChat('You', text, true);
     };
 
     registerUiBridges({

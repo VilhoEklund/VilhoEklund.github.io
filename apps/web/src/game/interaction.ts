@@ -18,6 +18,12 @@ export interface InteractionHooks {
   onSignPlaced: (cell: { x: number; y: number; z: number }) => void;
 }
 
+export interface InteractionOptions {
+  localOnly: boolean;
+  playerId: string;
+  playerName: string;
+}
+
 interface PendingOp {
   eid: string;
   kind: 'place' | 'break';
@@ -67,13 +73,17 @@ export class Interaction {
     private readonly signs: SignsRenderer,
     private readonly player: LocalPlayer,
     private readonly hooks: InteractionHooks,
+    private readonly opts: InteractionOptions,
   ) {}
 
   get selectedBlock(): number {
     return HOTBAR_BLOCKS[this.selectedSlot % HOTBAR_BLOCKS.length] ?? BlockId.Stone;
   }
 
-  targetFromCamera(eye: { x: number; y: number; z: number }, look: { dx: number; dy: number; dz: number }): RayHit | null {
+  targetFromCamera(
+    eye: { x: number; y: number; z: number },
+    look: { dx: number; dy: number; dz: number },
+  ): RayHit | null {
     return raycastVoxel(this.world, eye.x, eye.y, eye.z, look.dx, look.dy, look.dz, PLAYER_REACH);
   }
 
@@ -87,8 +97,19 @@ export class Interaction {
     const eid = newEid();
     const frame: ClientMessage = { t: 'edit', eid, action: 'break', x: hit.x, y: hit.y, z: hit.z };
     this.applyLocal(hit.x, hit.y, hit.z, BlockId.Air);
-    this.pending.set(eid, { eid, kind: 'break', x: hit.x, y: hit.y, z: hit.z, prevBlock: current, sentAt: Date.now(), frame });
-    if (!this.net.send(frame)) this.hooks.toast('Offline - edit will sync after reconnect.', 'info');
+    if (this.opts.localOnly) return;
+    this.pending.set(eid, {
+      eid,
+      kind: 'break',
+      x: hit.x,
+      y: hit.y,
+      z: hit.z,
+      prevBlock: current,
+      sentAt: Date.now(),
+      frame,
+    });
+    if (!this.net.send(frame))
+      this.hooks.toast('Offline - edit will sync after reconnect.', 'info');
   }
 
   tryPlace(hit: RayHit): void {
@@ -98,7 +119,17 @@ export class Interaction {
     if (y < 0 || y > 255) return;
     const current = this.world.getBlock(x, y, z);
     if (current !== BlockId.Air && current !== BlockId.Water) return;
-    if (playerIntersectsCell(this.player.pos.x, this.player.pos.y, this.player.pos.z, x, y, z, this.player.height)) {
+    if (
+      playerIntersectsCell(
+        this.player.pos.x,
+        this.player.pos.y,
+        this.player.pos.z,
+        x,
+        y,
+        z,
+        this.player.height,
+      )
+    ) {
       this.hooks.toast('Not enough room.', 'error');
       return;
     }
@@ -110,7 +141,30 @@ export class Interaction {
       // Compute facing quadrant from player yaw (0..3), matching signsRenderer.
       const yawDeg = ((-this.player.yaw * 180) / Math.PI + 360 + 45) % 360;
       const rot = Math.floor(yawDeg / 90) % 4;
-      const signFrame: ClientMessage = { t: 'sign', eid: newEid(), op: 'create', x, y, z, text: '', rot };
+      if (this.opts.localOnly) {
+        this.signs.upsert({
+          x,
+          y,
+          z,
+          text: '',
+          authorId: this.opts.playerId,
+          authorName: this.opts.playerName,
+          updatedAt: Date.now(),
+          rot,
+        });
+        this.hooks.onSignPlaced({ x, y, z });
+        return;
+      }
+      const signFrame: ClientMessage = {
+        t: 'sign',
+        eid: newEid(),
+        op: 'create',
+        x,
+        y,
+        z,
+        text: '',
+        rot,
+      };
       this.pending.set(signFrame.eid, {
         eid: signFrame.eid,
         kind: 'place',
@@ -124,12 +178,36 @@ export class Interaction {
       this.net.send(signFrame);
       this.hooks.onSignPlaced({ x, y, z });
     }
-    this.pending.set(eid, { eid, kind: 'place', x, y, z, prevBlock: current, sentAt: Date.now(), frame });
-    if (!this.net.send(frame)) this.hooks.toast('Offline - edit will sync after reconnect.', 'info');
+    if (this.opts.localOnly) return;
+    this.pending.set(eid, {
+      eid,
+      kind: 'place',
+      x,
+      y,
+      z,
+      prevBlock: current,
+      sentAt: Date.now(),
+      frame,
+    });
+    if (!this.net.send(frame))
+      this.hooks.toast('Offline - edit will sync after reconnect.', 'info');
   }
 
   saveSignText(cell: { x: number; y: number; z: number }, text: string): void {
-    const frame: ClientMessage = { t: 'sign', eid: newEid(), op: 'update', x: cell.x, y: cell.y, z: cell.z, text };
+    if (this.opts.localOnly) {
+      const existing = this.world.signs.get(`${cell.x},${cell.y},${cell.z}`);
+      if (existing) this.signs.upsert({ ...existing, text, updatedAt: Date.now() });
+      return;
+    }
+    const frame: ClientMessage = {
+      t: 'sign',
+      eid: newEid(),
+      op: 'update',
+      x: cell.x,
+      y: cell.y,
+      z: cell.z,
+      text,
+    };
     this.pending.set(frame.eid, {
       eid: frame.eid,
       kind: 'place',
@@ -149,7 +227,19 @@ export class Interaction {
   }
 
   removeSign(cell: { x: number; y: number; z: number }): void {
-    const frame: ClientMessage = { t: 'sign', eid: newEid(), op: 'remove', x: cell.x, y: cell.y, z: cell.z };
+    if (this.opts.localOnly) {
+      this.signs.removeAt(cell.x, cell.y, cell.z);
+      this.applyLocal(cell.x, cell.y, cell.z, BlockId.Air);
+      return;
+    }
+    const frame: ClientMessage = {
+      t: 'sign',
+      eid: newEid(),
+      op: 'remove',
+      x: cell.x,
+      y: cell.y,
+      z: cell.z,
+    };
     this.pending.set(frame.eid, {
       eid: frame.eid,
       kind: 'place',
@@ -234,7 +324,8 @@ export class Interaction {
     for (const op of ops) {
       if (this.net.send(op.frame)) sent++;
     }
-    if (sent > 0) this.hooks.toast(`Re-synced ${sent} pending edit${sent === 1 ? '' : 's'}.`, 'good');
+    if (sent > 0)
+      this.hooks.toast(`Re-synced ${sent} pending edit${sent === 1 ? '' : 's'}.`, 'good');
     this.pruneStale();
   }
 
@@ -248,7 +339,9 @@ export class Interaction {
 
   /** Validate a target is within reach before acting (defense in depth). */
   withinReach(eye: { x: number; y: number; z: number }, hit: RayHit): boolean {
-    return distanceSqToBlockCenter(eye.x, eye.y, eye.z, hit.x, hit.y, hit.z) <= (PLAYER_REACH + 0.5) ** 2;
+    return (
+      distanceSqToBlockCenter(eye.x, eye.y, eye.z, hit.x, hit.y, hit.z) <= (PLAYER_REACH + 0.5) ** 2
+    );
   }
 
   private applyLocal(x: number, y: number, z: number, block: number): void {
