@@ -48,7 +48,7 @@ The shared persistent world uses a Cloudflare Worker and Durable Object.
 4. Confirm `ALLOWED_ORIGINS` in `apps/server/wrangler.jsonc` contains the final
    GitHub Pages or custom-domain origin.
 5. Run **Deploy server to Cloudflare** from the Actions tab.
-6. Add the public WebSocket endpoint as the repository secret
+6. Add the public WebSocket endpoint as the repository Actions variable
    `VITE_GAME_SERVER_URL`, for example
    `wss://eternal-blocks-server.example.workers.dev/ws`.
 7. Rerun **Deploy web to GitHub Pages** so Vite includes that endpoint.

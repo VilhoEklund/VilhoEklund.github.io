@@ -62,7 +62,8 @@ jobs:
         run: npm run build:web
         env:
           VITE_BASE_PATH: ${{ steps.base.outputs.path }}
-          VITE_GAME_SERVER_URL: ${{ secrets.VITE_GAME_SERVER_URL }}
+          # The WebSocket endpoint is public runtime configuration, not a secret.
+          VITE_GAME_SERVER_URL: ${{ vars.VITE_GAME_SERVER_URL }}
 
       - name: Verify base-path build output
         run: node scripts/check-pages-build.mjs "${{ steps.base.outputs.path }}"

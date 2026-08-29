@@ -277,6 +277,6 @@ export class TerrainGenerator {
       }
     }
 
-    return best ?? { x: 0.5, y: WORLD_HEIGHT / 2, z: 0.5 };
+    return best ? { x: best.x, y: best.y, z: best.z } : { x: 0.5, y: WORLD_HEIGHT / 2, z: 0.5 };
   }
 }
