@@ -27,7 +27,7 @@ describe('config', () => {
 describe('settings', () => {
   it('defaults are sane and clamped to documented ranges', () => {
     expect(DEFAULT_SETTINGS.renderDistance).toBeGreaterThanOrEqual(2);
-    expect(DEFAULT_SETTINGS.renderDistance).toBeLessThanOrEqual(10);
+    expect(DEFAULT_SETTINGS.renderDistance).toBeLessThanOrEqual(30);
     expect(DEFAULT_SETTINGS.sensitivity).toBeGreaterThan(0);
     expect(loadSettings().sensitivity).toBeGreaterThan(0);
   });

@@ -53,10 +53,10 @@ export const PLAYER_POS_PERSIST_INTERVAL_MS = 20_000;
 export const PING_INTERVAL_MS = 10_000;
 export const PLAYER_STALE_MS = 90_000;
 
-/** Default client render distance in chunks (configurable 2..10 in settings). */
+/** Default client render distance in chunks (configurable 2..30 in settings). */
 export const RENDER_DISTANCE_DEFAULT = 6;
 export const RENDER_DISTANCE_MIN = 2;
-export const RENDER_DISTANCE_MAX = 10;
+export const RENDER_DISTANCE_MAX = 30;
 
 /** Rate limits enforced per connection by the server. */
 export const RATE_LIMITS = {
