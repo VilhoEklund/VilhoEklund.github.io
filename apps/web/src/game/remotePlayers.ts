@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { hashString, lerpAngle } from '@eternal-blocks/shared';
+import { lerpAngle } from '@eternal-blocks/shared';
 import type { PlayerRosterEntry } from '@eternal-blocks/shared';
 
 /**
@@ -11,8 +11,8 @@ const INTERP_RATE = 14;
 
 interface RemoteState {
   group: THREE.Group;
-  legL: THREE.Mesh;
-  legR: THREE.Mesh;
+  legL: THREE.Group;
+  legR: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
   current: THREE.Vector3;
@@ -24,24 +24,13 @@ interface RemoteState {
   hasPosition: boolean;
 }
 
-interface AvatarPalette {
-  primary: string;
-  secondary: string;
-  skin: string;
-}
-
-function colorFromId(id: string): AvatarPalette {
-  const h = hashString(id);
-  const hue = (h % 360) / 360;
-  const c1 = new THREE.Color().setHSL(hue, 0.62, 0.56);
-  const c2 = new THREE.Color().setHSL((hue + 0.55) % 1, 0.45, 0.42);
-  const skinTones = ['#f2c6a5', '#ddb08c', '#bd835f', '#8f5f43', '#623f2f'];
-  return {
-    primary: `#${c1.getHexString()}`,
-    secondary: `#${c2.getHexString()}`,
-    skin: skinTones[(h >>> 9) % skinTones.length]!,
-  };
-}
+const DEFAULT_AVATAR = {
+  shirt: '#38a6a5',
+  trousers: '#3f4f96',
+  skin: '#dda17b',
+  hair: '#3a281f',
+  shoes: '#2a303a',
+} as const;
 
 function makeNameSprite(name: string): THREE.Sprite {
   const canvas = document.createElement('canvas');
@@ -74,47 +63,49 @@ function makeNameSprite(name: string): THREE.Sprite {
 
 export interface AvatarParts {
   group: THREE.Group;
-  legL: THREE.Mesh;
-  legR: THREE.Mesh;
+  legL: THREE.Group;
+  legR: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
 }
 
 /** Build an original blocky humanoid facing local -Z (the camera's yaw-zero direction). */
-export function buildAvatar(primary: string, secondary: string, skin: string): AvatarParts {
+export function buildAvatar(
+  primary: string,
+  secondary: string,
+  skin: string,
+  hair = DEFAULT_AVATAR.hair,
+  shoes = DEFAULT_AVATAR.shoes,
+): AvatarParts {
   const group = new THREE.Group();
 
   const matP = new THREE.MeshLambertMaterial({ color: primary });
   const matS = new THREE.MeshLambertMaterial({ color: secondary });
   const matSkin = new THREE.MeshLambertMaterial({ color: skin });
-  const matBoot = new THREE.MeshLambertMaterial({ color: '#202733' });
-  const matHair = new THREE.MeshLambertMaterial({ color: '#30251f' });
+  const matBoot = new THREE.MeshLambertMaterial({ color: shoes });
+  const matHair = new THREE.MeshLambertMaterial({ color: hair });
 
-  // Legs pivot from the hip for a walk swing.
-  const legGeo = new THREE.BoxGeometry(0.24, 0.72, 0.26);
-  legGeo.translate(0, -0.36, 0);
-  const legL = new THREE.Mesh(legGeo, matS);
-  legL.name = 'leg-left';
-  legL.position.set(-0.15, 0.72, 0);
-  const legR = new THREE.Mesh(legGeo.clone(), matS);
-  legR.name = 'leg-right';
-  legR.position.set(0.15, 0.72, 0);
-
-  const bootGeo = new THREE.BoxGeometry(0.245, 0.16, 0.3);
-  const bootL = new THREE.Mesh(bootGeo, matBoot);
-  bootL.position.set(0, -0.64, -0.02);
-  const bootR = new THREE.Mesh(bootGeo.clone(), matBoot);
-  bootR.position.copy(bootL.position);
-  legL.add(bootL);
-  legR.add(bootR);
+  // Each leg is one animated hip pivot with two non-overlapping segments.
+  // Trousers end exactly where the shoe begins, avoiding intersecting boxes.
+  const makeLeg = (name: string, x: number): THREE.Group => {
+    const leg = new THREE.Group();
+    leg.name = name;
+    leg.position.set(x, 0.72, 0);
+    const trouser = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.54, 0.26), matS);
+    trouser.name = `${name}-trouser`;
+    trouser.position.y = -0.27;
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.18, 0.3), matBoot);
+    shoe.name = `${name}-shoe`;
+    shoe.position.set(0, -0.63, -0.02);
+    leg.add(trouser, shoe);
+    return leg;
+  };
+  const legL = makeLeg('leg-left', -0.15);
+  const legR = makeLeg('leg-right', 0.15);
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.36), matP);
   torso.name = 'torso';
   torso.position.y = 1.08;
-  const shirtPanel = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.3, 0.025), matS);
-  shirtPanel.position.set(0, 1.13, -0.192);
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.1, 0.38), matS);
-  belt.position.y = 0.76;
 
   const makeArm = (name: string, x: number): THREE.Group => {
     const arm = new THREE.Group();
@@ -133,16 +124,21 @@ export function buildAvatar(primary: string, secondary: string, skin: string): A
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.44), matSkin);
   head.name = 'head';
   head.position.y = 1.69;
-  const hairCap = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.11, 0.46), matHair);
+  // Thin hair panels sit just outside the head instead of intersecting it.
+  const hairCap = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.06, 0.46), matHair);
   hairCap.name = 'hair-cap';
-  hairCap.position.y = 1.91;
-  const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.3, 0.08), matHair);
+  hairCap.position.y = 1.952;
+  const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.3, 0.05), matHair);
   hairBack.name = 'hair-back';
-  hairBack.position.set(0, 1.74, 0.22);
+  hairBack.position.set(0, 1.74, 0.247);
+  const hairFringe = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.1, 0.035), matHair);
+  hairFringe.name = 'hair-fringe';
+  hairFringe.position.set(0, 1.87, -0.239);
 
   // Face details sit on -Z, matching LocalPlayer yaw=0 looking toward -Z.
   const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: '#f7fbff' });
-  const pupilMat = new THREE.MeshBasicMaterial({ color: '#17202a' });
+  const pupilMat = new THREE.MeshBasicMaterial({ color: '#36586f' });
+  const mouthMat = new THREE.MeshBasicMaterial({ color: '#5c3028' });
   const eyeGeo = new THREE.BoxGeometry(0.1, 0.08, 0.018);
   const pupilGeo = new THREE.BoxGeometry(0.038, 0.055, 0.012);
   const eyeL = new THREE.Mesh(eyeGeo, eyeWhiteMat);
@@ -155,7 +151,13 @@ export function buildAvatar(primary: string, secondary: string, skin: string): A
   pupilL.position.set(-0.11, 1.725, -0.238);
   const pupilR = new THREE.Mesh(pupilGeo.clone(), pupilMat);
   pupilR.position.set(0.11, 1.725, -0.238);
-  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.025, 0.018), pupilMat);
+  const nose = new THREE.Mesh(
+    new THREE.BoxGeometry(0.055, 0.06, 0.018),
+    new THREE.MeshBasicMaterial({ color: '#aa704f' }),
+  );
+  nose.name = 'face-nose';
+  nose.position.set(0, 1.66, -0.231);
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.025, 0.018), mouthMat);
   mouth.name = 'face-mouth';
   mouth.position.set(0, 1.59, -0.228);
 
@@ -163,17 +165,17 @@ export function buildAvatar(primary: string, secondary: string, skin: string): A
     legL,
     legR,
     torso,
-    shirtPanel,
-    belt,
     armL,
     armR,
     head,
     hairCap,
     hairBack,
+    hairFringe,
     eyeL,
     eyeR,
     pupilL,
     pupilR,
+    nose,
     mouth,
   );
   group.traverse((o) => {
@@ -195,11 +197,12 @@ export class RemotePlayers {
 
   join(id: string, name: string): void {
     if (this.players.has(id)) return;
-    const colors = colorFromId(id);
     const { group, legL, legR, armL, armR } = buildAvatar(
-      colors.primary,
-      colors.secondary,
-      colors.skin,
+      DEFAULT_AVATAR.shirt,
+      DEFAULT_AVATAR.trousers,
+      DEFAULT_AVATAR.skin,
+      DEFAULT_AVATAR.hair,
+      DEFAULT_AVATAR.shoes,
     );
     group.add(makeNameSprite(name));
     group.visible = false; // hidden until first position arrives

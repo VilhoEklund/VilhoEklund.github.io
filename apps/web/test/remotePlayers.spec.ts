@@ -34,4 +34,26 @@ describe('remote player avatar', () => {
     expect(legL.position.x).toBeLessThan(0);
     expect(legR.position.x).toBeGreaterThan(0);
   });
+
+  it('keeps hair and shoes outside adjacent body geometry', () => {
+    const { group } = buildAvatar('#38a6a5', '#3f4f96', '#c98d67');
+    group.updateMatrixWorld(true);
+
+    const boxFor = (name: string): THREE.Box3 => {
+      const object = group.getObjectByName(name);
+      expect(object, name).toBeDefined();
+      return new THREE.Box3().setFromObject(object!);
+    };
+
+    const head = boxFor('head');
+    const hairCap = boxFor('hair-cap');
+    const hairBack = boxFor('hair-back');
+    expect(hairCap.min.y).toBeGreaterThan(head.max.y);
+    expect(hairBack.min.z).toBeGreaterThan(head.max.z);
+
+    const leftTrouser = boxFor('leg-left-trouser');
+    const leftShoe = boxFor('leg-left-shoe');
+    expect(leftShoe.max.y).toBeCloseTo(leftTrouser.min.y, 5);
+    expect(leftShoe.min.y).toBeCloseTo(0, 5);
+  });
 });
