@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, WORLD_HEIGHT, blockIndex } from '@eternal-blocks/shared';
-import { BLOCKS, BlockId } from '@eternal-blocks/shared';
+import {
+  BLOCKS,
+  BlockId,
+  blockSelectionBoxes,
+  isFullCube,
+  type BlockBox,
+} from '@eternal-blocks/shared';
 import { BLOCK_TILES, tileUVRect, type TileName } from '../textures.ts';
 import type { WorldStore } from './worldStore.ts';
 
@@ -150,6 +156,28 @@ class MeshBuilder {
     }
   }
 
+  /** Emit one face of a block-local shaped box. */
+  boxQuad(ox: number, oy: number, oz: number, box: BlockBox, face: FaceDef, tile: TileName): void {
+    const [u0, v0, u1, v1] = tileUVRect(tile);
+    const base = this.positions.length / 3;
+    for (let ci = 0; ci < 4; ci++) {
+      const c = face.corners[ci];
+      const px = c[0] === 0 ? box.minX : box.maxX;
+      const py = c[1] === 0 ? box.minY : box.maxY;
+      const pz = c[2] === 0 ? box.minZ : box.maxZ;
+      this.positions.push(ox + px, oy + py, oz + pz);
+      this.normals.push(face.dir[0], face.dir[1], face.dir[2]);
+      if (face.dir[1] === 0) {
+        const horiz = face.dir[0] !== 0 ? c[2] : c[0];
+        this.uvs.push(horiz === 1 ? u1 : u0, c[1] === 1 ? v1 : v0);
+      } else {
+        this.uvs.push(c[0] === 1 ? u1 : u0, c[2] === 1 ? v1 : v0);
+      }
+      this.colors.push(face.shade, face.shade, face.shade);
+    }
+    this.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+  }
+
   build(): THREE.BufferGeometry | null {
     if (this.indices.length === 0) return null;
     const g = new THREE.BufferGeometry();
@@ -176,6 +204,77 @@ function shouldDrawFace(self: number, neighbor: number): boolean {
   if (neighbor === self) return false; // merge same transparent types (glass-glass, water-water)
   if (self === BlockId.Water) return false; // water renders only against air
   return true;
+}
+
+const BOX_EPSILON = 1e-7;
+
+function nearlyEqual(a: number, b: number): boolean {
+  return Math.abs(a - b) <= BOX_EPSILON;
+}
+
+/** True when another box in the same shaped block completely covers this face. */
+function boxFaceCovered(box: BlockBox, face: FaceDef, other: BlockBox): boolean {
+  if (face.dir[0] < 0) {
+    return (
+      nearlyEqual(other.maxX, box.minX) &&
+      other.minY <= box.minY &&
+      other.maxY >= box.maxY &&
+      other.minZ <= box.minZ &&
+      other.maxZ >= box.maxZ
+    );
+  }
+  if (face.dir[0] > 0) {
+    return (
+      nearlyEqual(other.minX, box.maxX) &&
+      other.minY <= box.minY &&
+      other.maxY >= box.maxY &&
+      other.minZ <= box.minZ &&
+      other.maxZ >= box.maxZ
+    );
+  }
+  if (face.dir[1] < 0) {
+    return (
+      nearlyEqual(other.maxY, box.minY) &&
+      other.minX <= box.minX &&
+      other.maxX >= box.maxX &&
+      other.minZ <= box.minZ &&
+      other.maxZ >= box.maxZ
+    );
+  }
+  if (face.dir[1] > 0) {
+    return (
+      nearlyEqual(other.minY, box.maxY) &&
+      other.minX <= box.minX &&
+      other.maxX >= box.maxX &&
+      other.minZ <= box.minZ &&
+      other.maxZ >= box.maxZ
+    );
+  }
+  if (face.dir[2] < 0) {
+    return (
+      nearlyEqual(other.maxZ, box.minZ) &&
+      other.minX <= box.minX &&
+      other.maxX >= box.maxX &&
+      other.minY <= box.minY &&
+      other.maxY >= box.maxY
+    );
+  }
+  return (
+    nearlyEqual(other.minZ, box.maxZ) &&
+    other.minX <= box.minX &&
+    other.maxX >= box.maxX &&
+    other.minY <= box.minY &&
+    other.maxY >= box.maxY
+  );
+}
+
+function faceTouchesCellBoundary(box: BlockBox, face: FaceDef): boolean {
+  if (face.dir[0] < 0) return nearlyEqual(box.minX, 0);
+  if (face.dir[0] > 0) return nearlyEqual(box.maxX, 1);
+  if (face.dir[1] < 0) return nearlyEqual(box.minY, 0);
+  if (face.dir[1] > 0) return nearlyEqual(box.maxY, 1);
+  if (face.dir[2] < 0) return nearlyEqual(box.minZ, 0);
+  return nearlyEqual(box.maxZ, 1);
 }
 
 /** Build render geometry for one chunk (generates neighbor data as needed). */
@@ -212,6 +311,29 @@ export function buildChunkGeometries(world: WorldStore, cx: number, cz: number):
         const isWater = self === BlockId.Water;
         const builder = isWater ? water : solid;
 
+        if (!isWater && !isFullCube(self)) {
+          const boxes = blockSelectionBoxes(self);
+          boxes.forEach((box, boxIndex) => {
+            for (const face of FACES) {
+              if (
+                boxes.some(
+                  (other, otherIndex) =>
+                    otherIndex !== boxIndex && boxFaceCovered(box, face, other),
+                )
+              ) {
+                continue;
+              }
+              if (faceTouchesCellBoundary(box, face)) {
+                const neighbor = at(lx + face.dir[0], y + face.dir[1], lz + face.dir[2]);
+                if (BLOCKS[neighbor]?.opaque) continue;
+              }
+              const tile = face.dir[1] === 1 ? tiles[0] : face.dir[1] === -1 ? tiles[2] : tiles[1];
+              builder.boxQuad(lx, y, lz, box, face, tile);
+            }
+          });
+          continue;
+        }
+
         for (const face of FACES) {
           const nx = lx + face.dir[0];
           const ny = y + face.dir[1];
@@ -238,7 +360,14 @@ export function buildChunkGeometries(world: WorldStore, cx: number, cz: number):
               const b = 0.95 * face.shade;
               mb.colors.push(b, b, b);
             }
-            mb.indices.push(startIdx, startIdx + 1, startIdx + 2, startIdx + 2, startIdx + 1, startIdx + 3);
+            mb.indices.push(
+              startIdx,
+              startIdx + 1,
+              startIdx + 2,
+              startIdx + 2,
+              startIdx + 1,
+              startIdx + 3,
+            );
             continue;
           }
 
@@ -254,7 +383,9 @@ export function buildChunkGeometries(world: WorldStore, cx: number, cz: number):
             d2[t2] = c[t2] * 2 - 1;
             const s1 = opaqueAt(nx + d1[0], ny + d1[1], nz + d1[2]) ? 1 : 0;
             const s2 = opaqueAt(nx + d2[0], ny + d2[1], nz + d2[2]) ? 1 : 0;
-            const cnr = opaqueAt(nx + d1[0] + d2[0], ny + d1[1] + d2[1], nz + d1[2] + d2[2]) ? 1 : 0;
+            const cnr = opaqueAt(nx + d1[0] + d2[0], ny + d1[1] + d2[1], nz + d1[2] + d2[2])
+              ? 1
+              : 0;
             ao[ci] = s1 && s2 ? 0 : 3 - (s1 + s2 + cnr);
             void off;
           }

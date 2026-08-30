@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BlockId } from '@eternal-blocks/shared';
+import { BlockId, WOOL_BLOCKS } from '@eternal-blocks/shared';
 import { hashString, mulberry32 } from '@eternal-blocks/shared';
 
 /**
@@ -8,8 +8,8 @@ import { hashString, mulberry32 } from '@eternal-blocks/shared';
  */
 
 export const TILE_PX = 16;
-export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 4;
+export const ATLAS_COLS = 8;
+export const ATLAS_ROWS = 5;
 
 export type TileName =
   | 'grass_top'
@@ -25,7 +25,26 @@ export type TileName =
   | 'brick'
   | 'glass'
   | 'bedrock'
-  | 'sign';
+  | 'sign'
+  | 'wool_white'
+  | 'wool_light_gray'
+  | 'wool_gray'
+  | 'wool_black'
+  | 'wool_brown'
+  | 'wool_red'
+  | 'wool_orange'
+  | 'wool_yellow'
+  | 'wool_lime'
+  | 'wool_green'
+  | 'wool_cyan'
+  | 'wool_light_blue'
+  | 'wool_blue'
+  | 'wool_purple'
+  | 'wool_magenta'
+  | 'wool_pink'
+  | 'door_bottom'
+  | 'door_top'
+  | 'ladder';
 
 export const TILE_INDEX: Record<TileName, number> = {
   grass_top: 0,
@@ -42,6 +61,25 @@ export const TILE_INDEX: Record<TileName, number> = {
   glass: 11,
   bedrock: 13,
   sign: 14,
+  wool_white: 15,
+  wool_light_gray: 16,
+  wool_gray: 17,
+  wool_black: 18,
+  wool_brown: 19,
+  wool_red: 20,
+  wool_orange: 21,
+  wool_yellow: 22,
+  wool_lime: 23,
+  wool_green: 24,
+  wool_cyan: 25,
+  wool_light_blue: 26,
+  wool_blue: 27,
+  wool_purple: 28,
+  wool_magenta: 29,
+  wool_pink: 30,
+  door_bottom: 31,
+  door_top: 32,
+  ladder: 33,
 };
 
 /** [topTile, sideTile, bottomTile] per block id. */
@@ -59,6 +97,59 @@ export const BLOCK_TILES: Record<number, [TileName, TileName, TileName]> = {
   [BlockId.Bedrock]: ['bedrock', 'bedrock', 'bedrock'],
   [BlockId.Sign]: ['sign', 'sign', 'sign'],
 };
+
+const WOOL_TILES: TileName[] = [
+  'wool_white',
+  'wool_light_gray',
+  'wool_gray',
+  'wool_black',
+  'wool_brown',
+  'wool_red',
+  'wool_orange',
+  'wool_yellow',
+  'wool_lime',
+  'wool_green',
+  'wool_cyan',
+  'wool_light_blue',
+  'wool_blue',
+  'wool_purple',
+  'wool_magenta',
+  'wool_pink',
+];
+
+WOOL_BLOCKS.forEach((wool, index) => {
+  const tile = WOOL_TILES[index];
+  BLOCK_TILES[wool.id] = [tile, tile, tile];
+});
+
+for (const id of [BlockId.OakSlabBottom, BlockId.OakSlabTop]) {
+  BLOCK_TILES[id] = ['planks', 'planks', 'planks'];
+}
+for (const id of [BlockId.StoneSlabBottom, BlockId.StoneSlabTop]) {
+  BLOCK_TILES[id] = ['stone', 'stone', 'stone'];
+}
+for (const id of [BlockId.BrickSlabBottom, BlockId.BrickSlabTop]) {
+  BLOCK_TILES[id] = ['brick', 'brick', 'brick'];
+}
+for (let id = BlockId.OakStairsNorth; id <= BlockId.OakStairsWest; id++) {
+  BLOCK_TILES[id] = ['planks', 'planks', 'planks'];
+}
+for (let id = BlockId.StoneStairsNorth; id <= BlockId.StoneStairsWest; id++) {
+  BLOCK_TILES[id] = ['stone', 'stone', 'stone'];
+}
+for (let id = BlockId.BrickStairsNorth; id <= BlockId.BrickStairsWest; id++) {
+  BLOCK_TILES[id] = ['brick', 'brick', 'brick'];
+}
+for (let id = BlockId.LadderNorth; id <= BlockId.LadderWest; id++) {
+  BLOCK_TILES[id] = ['ladder', 'ladder', 'ladder'];
+}
+for (let id = BlockId.DoorBottomClosedNorth; id <= BlockId.DoorTopOpenWest; id++) {
+  const topHalf =
+    (id >= BlockId.DoorTopClosedNorth && id <= BlockId.DoorTopClosedWest) ||
+    (id >= BlockId.DoorTopOpenNorth && id <= BlockId.DoorTopOpenWest);
+  const tile: TileName = topHalf ? 'door_top' : 'door_bottom';
+  BLOCK_TILES[id] = [tile, tile, tile];
+}
 
 type RGB = [number, number, number];
 
@@ -99,6 +190,53 @@ function speckle(ctx: PainterCtx, color: RGB, count: number, alpha = 255): void 
     const x = Math.floor(ctx.rng() * ctx.size);
     const y = Math.floor(ctx.rng() * ctx.size);
     setPx(ctx, x, y, color, alpha);
+  }
+}
+
+function woolPainter(base: RGB): (ctx: PainterCtx) => void {
+  return (ctx) => {
+    fillNoise(ctx, base, 0.08);
+    for (let y = 1; y < ctx.size; y += 4) {
+      for (let x = (y % 8) / 4; x < ctx.size; x += 4) {
+        setPx(ctx, x, y, shade(base, 0.82));
+        setPx(ctx, x + 1, y - 1, shade(base, 1.1));
+      }
+    }
+  };
+}
+
+function paintDoor(ctx: PainterCtx, top: boolean): void {
+  for (let y = 0; y < ctx.size; y++) {
+    for (let x = 0; x < ctx.size; x++) {
+      const outer = x <= 1 || x >= 14 || y <= 1 || y >= 14;
+      const centerBar = x === 7 || x === 8;
+      const crossBar = y === 7 || y === 8;
+      const panel = outer || centerBar || crossBar;
+      if (top && !panel && y < 7) {
+        setPx(ctx, x, y, [150, 202, 213], 92);
+      } else {
+        const base: RGB = panel ? [126, 82, 39] : [173, 116, 57];
+        setPx(ctx, x, y, shade(base, 1 + (ctx.rng() - 0.5) * 0.08));
+      }
+    }
+  }
+  if (!top) {
+    setPx(ctx, 12, 5, [218, 184, 76]);
+    setPx(ctx, 13, 5, [139, 102, 38]);
+  }
+}
+
+function paintLadder(ctx: PainterCtx): void {
+  for (let y = 0; y < ctx.size; y++) {
+    for (let x = 0; x < ctx.size; x++) setPx(ctx, x, y, [0, 0, 0], 0);
+  }
+  for (let y = 1; y < ctx.size; y += 4) {
+    for (let x = 2; x <= 13; x++) setPx(ctx, x, y, [183, 132, 65]);
+  }
+  for (const x of [2, 3, 12, 13]) {
+    for (let y = 0; y < ctx.size; y++) {
+      setPx(ctx, x, y, x === 2 || x === 12 ? [126, 85, 39] : [195, 143, 72]);
+    }
   }
 }
 
@@ -261,6 +399,25 @@ const PAINTERS: Record<TileName, (ctx: PainterCtx) => void> = {
       }
     }
   },
+  wool_white: woolPainter([233, 236, 236]),
+  wool_light_gray: woolPainter([157, 157, 151]),
+  wool_gray: woolPainter([71, 79, 82]),
+  wool_black: woolPainter([29, 29, 33]),
+  wool_brown: woolPainter([131, 84, 50]),
+  wool_red: woolPainter([176, 46, 38]),
+  wool_orange: woolPainter([240, 118, 19]),
+  wool_yellow: woolPainter([248, 198, 39]),
+  wool_lime: woolPainter([112, 185, 25]),
+  wool_green: woolPainter([84, 109, 27]),
+  wool_cyan: woolPainter([22, 156, 156]),
+  wool_light_blue: woolPainter([58, 179, 218]),
+  wool_blue: woolPainter([60, 68, 170]),
+  wool_purple: woolPainter([137, 50, 184]),
+  wool_magenta: woolPainter([199, 78, 189]),
+  wool_pink: woolPainter([237, 141, 172]),
+  door_bottom: (ctx) => paintDoor(ctx, false),
+  door_top: (ctx) => paintDoor(ctx, true),
+  ladder: paintLadder,
 };
 
 export interface AtlasResult {

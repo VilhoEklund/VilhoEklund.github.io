@@ -32,6 +32,14 @@ export interface ApplyResult {
   duplicate: boolean;
 }
 
+export interface BlockChange {
+  x: number;
+  y: number;
+  z: number;
+  block: number;
+  cascadeSignRemove?: boolean;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -186,9 +194,25 @@ export class WorldStore {
     actorName: string;
     cascadeSignRemove?: boolean;
   }): Promise<ApplyResult & { signRemoved: boolean }> {
+    const result = await this.applyBlocks({
+      eid: args.eid,
+      changes: [args],
+      actorId: args.actorId,
+      actorName: args.actorName,
+    });
+    return { duplicate: result.duplicate, signRemoved: result.signRemoved.length > 0 };
+  }
+
+  /** Persist a coupled set of cells and its edit marker in one transaction. */
+  async applyBlocks(args: {
+    eid: string;
+    changes: BlockChange[];
+    actorId: string;
+    actorName: string;
+  }): Promise<ApplyResult & { signRemoved: Array<{ x: number; y: number; z: number }> }> {
     const at = this.now();
     let duplicate = false;
-    let signRemoved = false;
+    const signRemoved: Array<{ x: number; y: number; z: number }> = [];
     await this.sql.transaction(() => {
       const ins = this.sql.run(
         `INSERT INTO edits(eid,kind,at) VALUES(?,'block',?) ON CONFLICT(eid) DO NOTHING`,
@@ -199,38 +223,40 @@ export class WorldStore {
         duplicate = true;
         return;
       }
-      const prev = this.getBlock(args.x, args.y, args.z);
-      const hadSignBlock = prev === 13; // BlockId.Sign (numeric literal avoids circular import)
-      this.sql.run(
-        `INSERT INTO blocks(x,y,z,cx,cz,block,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?)
-         ON CONFLICT(x,y,z) DO UPDATE SET block=excluded.block, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-        args.x,
-        args.y,
-        args.z,
-        chunkCoord(args.x),
-        chunkCoord(args.z),
-        args.block,
-        at,
-        args.actorId,
-      );
-      if (hadSignBlock && args.cascadeSignRemove) {
-        this.sql.run(`DELETE FROM signs WHERE x=? AND y=? AND z=?`, args.x, args.y, args.z);
-        signRemoved = true;
-        this.appendAuditUnsafe(args.actorId, args.actorName, 'sign:remove', {
-          eid: `${args.eid}:cascade`,
-          x: args.x,
-          y: args.y,
-          z: args.z,
-          chars: 0,
+      for (const change of args.changes) {
+        const prev = this.getBlock(change.x, change.y, change.z);
+        const hadSignBlock = prev === 13; // BlockId.Sign (numeric literal avoids circular import)
+        this.sql.run(
+          `INSERT INTO blocks(x,y,z,cx,cz,block,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?)
+           ON CONFLICT(x,y,z) DO UPDATE SET block=excluded.block, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
+          change.x,
+          change.y,
+          change.z,
+          chunkCoord(change.x),
+          chunkCoord(change.z),
+          change.block,
+          at,
+          args.actorId,
+        );
+        if (hadSignBlock && change.cascadeSignRemove) {
+          this.sql.run(`DELETE FROM signs WHERE x=? AND y=? AND z=?`, change.x, change.y, change.z);
+          signRemoved.push({ x: change.x, y: change.y, z: change.z });
+          this.appendAuditUnsafe(args.actorId, args.actorName, 'sign:remove', {
+            eid: `${args.eid}:cascade`,
+            x: change.x,
+            y: change.y,
+            z: change.z,
+            chars: 0,
+          });
+        }
+        this.appendAuditUnsafe(args.actorId, args.actorName, 'block', {
+          eid: args.eid,
+          x: change.x,
+          y: change.y,
+          z: change.z,
+          block: change.block,
         });
       }
-      this.appendAuditUnsafe(args.actorId, args.actorName, 'block', {
-        eid: args.eid,
-        x: args.x,
-        y: args.y,
-        z: args.z,
-        block: args.block,
-      });
     });
     return { duplicate, signRemoved };
   }

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { CLOSE_CODES, PLAYER_REACH, SERVER_REACH_MARGIN } from '@eternal-blocks/shared';
+import { BlockId, CLOSE_CODES, PLAYER_REACH, SERVER_REACH_MARGIN } from '@eternal-blocks/shared';
 import { WorldCoordinator } from '../src/coordinator.ts';
 import { WorldStore } from '../src/store.ts';
 import { FakeSql, TestPlayer, makeWorld, testId } from './harness.ts';
@@ -23,6 +23,22 @@ function findAirCellNearSpawn(coord: WorldCoordinator): { x: number; y: number; 
     if (coord.getEffectiveBlock(px, py + dy, pz) === 0) return { x: px, y: py + dy, z: pz };
   }
   throw new Error('no reachable air cell found near spawn');
+}
+
+function findDoorCellNearSpawn(coord: WorldCoordinator): { x: number; y: number; z: number } {
+  const sp = coord.spawnPoint();
+  const x = Math.floor(sp.x);
+  const z = Math.floor(sp.z);
+  for (let y = Math.floor(sp.y); y < Math.floor(sp.y) + 5; y++) {
+    if (
+      coord.getEffectiveBlock(x, y, z) === BlockId.Air &&
+      coord.getEffectiveBlock(x, y + 1, z) === BlockId.Air &&
+      coord.getEffectiveBlock(x, y - 1, z) !== BlockId.Air
+    ) {
+      return { x, y, z };
+    }
+  }
+  throw new Error('no supported door cell found near spawn');
 }
 
 describe('presence', () => {
@@ -65,6 +81,69 @@ describe('presence', () => {
 });
 
 describe('block edits', () => {
+  it('places, toggles, and breaks both halves of a door atomically', async () => {
+    const { coord, store } = await makeWorld();
+    const alice = new TestPlayer(coord, testId(), 'Carpenter');
+    await alice.connect();
+    const cell = findDoorCellNearSpawn(coord);
+    expect(coord.getEffectiveBlock(cell.x, cell.y + 1, cell.z)).toBe(BlockId.Air);
+
+    const placeEid = nextEid();
+    await alice.send({
+      t: 'edit',
+      eid: placeEid,
+      action: 'place',
+      ...cell,
+      block: BlockId.DoorBottomClosedNorth,
+    });
+    expect(store.getBlock(cell.x, cell.y, cell.z)).toBe(BlockId.DoorBottomClosedNorth);
+    expect(store.getBlock(cell.x, cell.y + 1, cell.z)).toBe(BlockId.DoorTopClosedNorth);
+    expect(alice.socket.ofType('blockApplied').filter((m) => m.action === 'place')).toHaveLength(2);
+
+    await alice.send({ t: 'use', eid: nextEid(), ...cell });
+    expect(store.getBlock(cell.x, cell.y, cell.z)).toBe(BlockId.DoorBottomOpenNorth);
+    expect(store.getBlock(cell.x, cell.y + 1, cell.z)).toBe(BlockId.DoorTopOpenNorth);
+    expect(alice.socket.ofType('blockApplied').filter((m) => m.action === 'use')).toHaveLength(2);
+
+    await alice.send({
+      t: 'edit',
+      eid: nextEid(),
+      action: 'break',
+      x: cell.x,
+      y: cell.y + 1,
+      z: cell.z,
+    });
+    expect(store.getBlock(cell.x, cell.y, cell.z)).toBe(BlockId.Air);
+    expect(store.getBlock(cell.x, cell.y + 1, cell.z)).toBe(BlockId.Air);
+  });
+
+  it('requires ladder support and removes the ladder with its support', async () => {
+    const { coord, store } = await makeWorld();
+    const alice = new TestPlayer(coord, testId(), 'Climber');
+    await alice.connect();
+    const support = findAirCellNearSpawn(coord);
+    await alice.send({
+      t: 'edit',
+      eid: nextEid(),
+      action: 'place',
+      ...support,
+      block: BlockId.Stone,
+    });
+    const ladder = { x: support.x - 1, y: support.y, z: support.z };
+    await alice.send({
+      t: 'edit',
+      eid: nextEid(),
+      action: 'place',
+      ...ladder,
+      block: BlockId.LadderEast,
+    });
+    expect(store.getBlock(ladder.x, ladder.y, ladder.z)).toBe(BlockId.LadderEast);
+
+    await alice.send({ t: 'edit', eid: nextEid(), action: 'break', ...support });
+    expect(store.getBlock(support.x, support.y, support.z)).toBe(BlockId.Air);
+    expect(store.getBlock(ladder.x, ladder.y, ladder.z)).toBe(BlockId.Air);
+  });
+
   it('applies, persists and broadcasts a placement to subscribers', async () => {
     const { coord, store } = await makeWorld();
     const alice = new TestPlayer(coord, testId(), 'Alice');
@@ -137,7 +216,14 @@ describe('block edits', () => {
     // Report an implausible-but-bounded position next to bedrock; the server
     // validates geometry/reach, not full physics simulation.
     await alice.send({ t: 'pos', x: sp.x, y: 1.0, z: sp.z, yaw: 0, pitch: 0 });
-    await alice.send({ t: 'edit', eid: nextEid(), action: 'break', x: Math.floor(sp.x), y: 0, z: Math.floor(sp.z) });
+    await alice.send({
+      t: 'edit',
+      eid: nextEid(),
+      action: 'break',
+      x: Math.floor(sp.x),
+      y: 0,
+      z: Math.floor(sp.z),
+    });
     expect((alice.socket.last() as { code: string }).code).toBe('unbreakable');
 
     // Back to spawn; break a known air cell within reach.
@@ -191,8 +277,24 @@ describe('block edits', () => {
     const sy = Math.floor(sp.y) + 2;
     const sz = Math.floor(sp.z);
 
-    await alice.send({ t: 'edit', eid: nextEid(), action: 'place', x: sx, y: sy, z: sz, block: 13 });
-    await alice.send({ t: 'sign', eid: nextEid(), op: 'create', x: sx, y: sy, z: sz, text: 'hello\nworld' });
+    await alice.send({
+      t: 'edit',
+      eid: nextEid(),
+      action: 'place',
+      x: sx,
+      y: sy,
+      z: sz,
+      block: 13,
+    });
+    await alice.send({
+      t: 'sign',
+      eid: nextEid(),
+      op: 'create',
+      x: sx,
+      y: sy,
+      z: sz,
+      text: 'hello\nworld',
+    });
     expect(bob.socket.ofType('signApplied').length).toBe(1);
 
     await bob.send({ t: 'edit', eid: nextEid(), action: 'break', x: sx, y: sy, z: sz });
@@ -221,7 +323,13 @@ describe('signs over protocol', () => {
     expect(created.sign.authorName).toBe('Author');
     expect(coord.store.getSign(s.x, s.y, s.z)?.text).toBe('welcome!');
 
-    await alice.send({ t: 'sign', eid: 'sign-update-1', op: 'update', ...s, text: 'edited <script>' });
+    await alice.send({
+      t: 'sign',
+      eid: 'sign-update-1',
+      op: 'update',
+      ...s,
+      text: 'edited <script>',
+    });
     expect(coord.store.getSign(s.x, s.y, s.z)?.text).toBe('edited <script>');
 
     // Mallory tries to hijack the sign.
@@ -404,9 +512,33 @@ describe('restart persistence (file-backed sqlite)', () => {
       const bx = Math.floor(sp.x) + 3;
       const by = Math.floor(sp.y) + 2;
       const bz = Math.floor(sp.z) + 3;
-      await alice.send({ t: 'edit', eid: 'persist-block-1', action: 'place', x: bx, y: by, z: bz, block: 9 });
-      await alice.send({ t: 'edit', eid: 'persist-sign-1', action: 'place', x: bx + 1, y: by, z: bz, block: 13 });
-      await alice.send({ t: 'sign', eid: 'persist-sign-txt', op: 'create', x: bx + 1, y: by, z: bz, text: 'was here' });
+      await alice.send({
+        t: 'edit',
+        eid: 'persist-block-1',
+        action: 'place',
+        x: bx,
+        y: by,
+        z: bz,
+        block: 9,
+      });
+      await alice.send({
+        t: 'edit',
+        eid: 'persist-sign-1',
+        action: 'place',
+        x: bx + 1,
+        y: by,
+        z: bz,
+        block: 13,
+      });
+      await alice.send({
+        t: 'sign',
+        eid: 'persist-sign-txt',
+        op: 'create',
+        x: bx + 1,
+        y: by,
+        z: bz,
+        text: 'was here',
+      });
       db1.close();
 
       // --- Second server lifetime over the same storage ---
@@ -422,7 +554,11 @@ describe('restart persistence (file-backed sqlite)', () => {
       let foundBlock = false;
       let foundSign = false;
       for (const c of chunkMsgs) {
-        if (Math.floor(bx / 16) === c.cx && Math.floor(bz / 16) === c.cz && c.overrides.some(([, b]) => b === 9)) {
+        if (
+          Math.floor(bx / 16) === c.cx &&
+          Math.floor(bz / 16) === c.cz &&
+          c.overrides.some(([, b]) => b === 9)
+        ) {
           foundBlock = true;
         }
         for (const s of c.signs) {

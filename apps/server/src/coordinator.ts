@@ -5,14 +5,26 @@ import {
   MAX_FRAME_BYTES,
   PLAYER_REACH,
   PLAYER_STALE_MS,
+  PROTOCOL_VERSION,
   RATE_LIMITS,
   SERVER_REACH_MARGIN,
   TerrainGenerator,
+  WORLD_HEIGHT,
   chunkCoord,
   chunkKey,
   decodeClientFrame,
   distanceSqToBlockCenter,
+  doorCounterpart,
+  isDoor,
+  isDoorBottom,
+  isDoorTop,
+  isFullCube,
+  isReplaceable,
+  isSolid,
   isValidWorldCoord,
+  ladderSupportOffset,
+  toggleDoorBlock,
+  supportsBlockAbove,
   type ClientMessage,
   type ServerMessage,
   type SignInfo,
@@ -352,6 +364,9 @@ export class ConnectionHandler {
       case 'edit':
         await this.handleEdit(msg);
         return;
+      case 'use':
+        await this.handleUse(msg);
+        return;
       case 'sign':
         await this.handleSign(msg);
         return;
@@ -413,7 +428,7 @@ export class ConnectionHandler {
     const others = this.coord.roster().filter((p) => p.id !== msg.playerId);
     this.send({
       t: 'welcome',
-      proto: 1,
+      proto: PROTOCOL_VERSION,
       playerId: msg.playerId,
       seed: this.coord.seed,
       terrainVersion: this.coord.store.meta.terrainVersion,
@@ -549,7 +564,13 @@ export class ConnectionHandler {
     if (!this.validateReach(msg.x, msg.y, msg.z)) return;
 
     const current = this.coord.getEffectiveBlock(msg.x, msg.y, msg.z);
-    let newBlock: number;
+    const changes: Array<{
+      x: number;
+      y: number;
+      z: number;
+      block: number;
+      cascadeSignRemove?: boolean;
+    }> = [];
     if (msg.action === 'break') {
       if (current === BlockId.Air || current === BlockId.Water || current === null) {
         this.sendError('nothing_to_edit', 'nothing to break here', msg.eid);
@@ -559,24 +580,89 @@ export class ConnectionHandler {
         this.sendError('unbreakable', 'bedrock cannot be broken', msg.eid);
         return;
       }
-      newBlock = BlockId.Air;
+      changes.push({
+        x: msg.x,
+        y: msg.y,
+        z: msg.z,
+        block: BlockId.Air,
+        cascadeSignRemove: current === BlockId.Sign,
+      });
+      if (isDoor(current)) {
+        const otherY = msg.y + (isDoorBottom(current) ? 1 : -1);
+        const counterpart = doorCounterpart(current);
+        if (
+          otherY >= 0 &&
+          otherY < WORLD_HEIGHT &&
+          counterpart !== null &&
+          this.coord.getEffectiveBlock(msg.x, otherY, msg.z) === counterpart
+        ) {
+          changes.push({ x: msg.x, y: otherY, z: msg.z, block: BlockId.Air });
+        }
+      }
     } else {
-      if (current !== BlockId.Air && current !== BlockId.Water) {
+      if (!isReplaceable(current)) {
         this.sendError('nothing_to_edit', 'cell is occupied', msg.eid);
         return;
       }
-      newBlock = msg.block!;
+      changes.push({ x: msg.x, y: msg.y, z: msg.z, block: msg.block! });
+      const ladderSupport = ladderSupportOffset(msg.block!);
+      if (ladderSupport) {
+        const supportBlock = this.coord.getEffectiveBlock(
+          msg.x + ladderSupport.x,
+          msg.y,
+          msg.z + ladderSupport.z,
+        );
+        if (!isSolid(supportBlock) || !isFullCube(supportBlock)) {
+          this.sendError('nothing_to_edit', 'a ladder needs a solid supporting block', msg.eid);
+          return;
+        }
+      }
+      if (isDoorBottom(msg.block!)) {
+        const topY = msg.y + 1;
+        const top = doorCounterpart(msg.block!);
+        if (
+          !supportsBlockAbove(this.coord.getEffectiveBlock(msg.x, msg.y - 1, msg.z)) ||
+          topY >= WORLD_HEIGHT ||
+          top === null ||
+          !isReplaceable(this.coord.getEffectiveBlock(msg.x, topY, msg.z))
+        ) {
+          this.sendError('nothing_to_edit', 'a door needs two empty cells', msg.eid);
+          return;
+        }
+        changes.push({ x: msg.x, y: topY, z: msg.z, block: top });
+      }
     }
 
-    const result = await this.coord.store.applyBlock({
+    if (msg.action === 'break') {
+      const supportsRemoved = [...changes];
+      for (const removed of supportsRemoved) {
+        for (const [dx, dz] of [
+          [-1, 0],
+          [1, 0],
+          [0, -1],
+          [0, 1],
+        ] as const) {
+          const lx = removed.x + dx;
+          const lz = removed.z + dz;
+          const ladder = this.coord.getEffectiveBlock(lx, removed.y, lz);
+          const support = ladderSupportOffset(ladder);
+          if (
+            support &&
+            lx + support.x === removed.x &&
+            lz + support.z === removed.z &&
+            !changes.some((change) => change.x === lx && change.y === removed.y && change.z === lz)
+          ) {
+            changes.push({ x: lx, y: removed.y, z: lz, block: BlockId.Air });
+          }
+        }
+      }
+    }
+
+    const result = await this.coord.store.applyBlocks({
       eid: msg.eid,
-      x: msg.x,
-      y: msg.y,
-      z: msg.z,
-      block: newBlock,
+      changes,
       actorId: conn.playerId,
       actorName: conn.name,
-      cascadeSignRemove: msg.action === 'break' && current === BlockId.Sign,
     });
 
     if (result.duplicate) {
@@ -589,33 +675,23 @@ export class ConnectionHandler {
         x: msg.x,
         y: msg.y,
         z: msg.z,
-        block: stored ?? newBlock,
+        block: stored ?? changes[0].block,
         by: { id: conn.playerId, name: conn.name },
       });
       return;
     }
 
-    const applied: Extract<ServerMessage, { t: 'blockApplied' }> = {
-      t: 'blockApplied',
-      eid: msg.eid,
-      action: msg.action,
-      x: msg.x,
-      y: msg.y,
-      z: msg.z,
-      block: newBlock,
-      by: { id: conn.playerId!, name: conn.name },
-    };
-    // Persisted before this broadcast (store.applyBlock committed above).
-    this.coord.broadcastToChunkSubscribers(chunkKey(chunkCoord(msg.x), chunkCoord(msg.z)), applied);
-    if (result.signRemoved) {
+    // All coupled cells were committed together before any broadcast.
+    this.broadcastBlockChanges(msg.action, msg.eid, changes, conn);
+    for (const removed of result.signRemoved) {
       const signMsg: Extract<ServerMessage, { t: 'signApplied' }> = {
         t: 'signApplied',
         eid: `${msg.eid}:cascade`,
         op: 'remove',
         sign: {
-          x: msg.x,
-          y: msg.y,
-          z: msg.z,
+          x: removed.x,
+          y: removed.y,
+          z: removed.z,
           text: '',
           authorId: '',
           authorName: '',
@@ -623,10 +699,90 @@ export class ConnectionHandler {
         },
       };
       this.coord.broadcastToChunkSubscribers(
-        chunkKey(chunkCoord(msg.x), chunkCoord(msg.z)),
+        chunkKey(chunkCoord(removed.x), chunkCoord(removed.z)),
         signMsg,
       );
     }
+  }
+
+  private async handleUse(msg: Extract<ClientMessage, { t: 'use' }>): Promise<void> {
+    if (!this.requireJoined()) return;
+    const conn = this.conn!;
+    if (!conn.buckets.edits.tryTake()) {
+      this.sendError('rate_limited', 'too many edits', msg.eid);
+      return;
+    }
+    if (!isValidWorldCoord(msg.x, msg.y, msg.z)) {
+      this.sendError('out_of_range', 'coordinates out of range', msg.eid);
+      return;
+    }
+    if (this.coord.store.hasEdit(msg.eid)) {
+      this.send({
+        t: 'blockApplied',
+        eid: msg.eid,
+        action: 'use',
+        x: msg.x,
+        y: msg.y,
+        z: msg.z,
+        block: this.coord.store.getBlock(msg.x, msg.y, msg.z) ?? BlockId.Air,
+        by: { id: conn.playerId, name: conn.name },
+      });
+      return;
+    }
+    if (!this.validateReach(msg.x, msg.y, msg.z)) return;
+
+    const current = this.coord.getEffectiveBlock(msg.x, msg.y, msg.z);
+    if (!isDoor(current)) {
+      this.sendError('invalid_use', 'that block cannot be used', msg.eid);
+      return;
+    }
+    const otherY = msg.y + (isDoorTop(current) ? -1 : 1);
+    const counterpart = doorCounterpart(current);
+    const toggled = toggleDoorBlock(current);
+    if (
+      otherY < 0 ||
+      otherY >= WORLD_HEIGHT ||
+      counterpart === null ||
+      toggled === null ||
+      this.coord.getEffectiveBlock(msg.x, otherY, msg.z) !== counterpart
+    ) {
+      this.sendError('invalid_use', 'the door is incomplete', msg.eid);
+      return;
+    }
+    const toggledCounterpart = toggleDoorBlock(counterpart)!;
+    const changes = [
+      { x: msg.x, y: msg.y, z: msg.z, block: toggled },
+      { x: msg.x, y: otherY, z: msg.z, block: toggledCounterpart },
+    ];
+    const result = await this.coord.store.applyBlocks({
+      eid: msg.eid,
+      changes,
+      actorId: conn.playerId,
+      actorName: conn.name,
+    });
+    if (result.duplicate) return;
+    this.broadcastBlockChanges('use', msg.eid, changes, conn);
+  }
+
+  private broadcastBlockChanges(
+    action: 'place' | 'break' | 'use',
+    eid: string,
+    changes: Array<{ x: number; y: number; z: number; block: number }>,
+    conn: ConnState,
+  ): void {
+    changes.forEach((change, index) => {
+      const applied: Extract<ServerMessage, { t: 'blockApplied' }> = {
+        t: 'blockApplied',
+        ...(index === 0 ? { eid } : {}),
+        action,
+        ...change,
+        by: { id: conn.playerId, name: conn.name },
+      };
+      this.coord.broadcastToChunkSubscribers(
+        chunkKey(chunkCoord(change.x), chunkCoord(change.z)),
+        applied,
+      );
+    });
   }
 
   private async handleSign(msg: Extract<ClientMessage, { t: 'sign' }>): Promise<void> {

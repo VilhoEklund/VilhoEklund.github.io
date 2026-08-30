@@ -595,6 +595,10 @@ input[type='range'] {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
+  max-height: min(390px, 45vh);
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
 }
 
 .inventory-block {

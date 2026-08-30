@@ -9,7 +9,7 @@ import {
   SIGN_MAX_LINE_LEN,
   WORLD_HEIGHT,
 } from './constants.ts';
-import { BlockId } from './blocks.ts';
+import { isPlaceable } from './blocks.ts';
 
 /**
  * Versioned, validated WebSocket protocol for Eternal Blocks.
@@ -92,6 +92,14 @@ export interface SignMsg {
   rot?: number;
 }
 
+export interface UseMsg {
+  t: 'use';
+  eid: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface ChatMsgC {
   t: 'chat';
   text: string;
@@ -102,7 +110,7 @@ export interface PingMsg {
   ts: number;
 }
 
-export type ClientMessage = HelloMsg | PosMsg | EditMsg | SignMsg | ChatMsgC | PingMsg;
+export type ClientMessage = HelloMsg | PosMsg | EditMsg | UseMsg | SignMsg | ChatMsgC | PingMsg;
 
 // ---------------------------------------------------------------------------
 // Server -> Client messages
@@ -161,7 +169,7 @@ export interface PStateMsg {
 export interface BlockAppliedMsg {
   t: 'blockApplied';
   eid?: string;
-  action: 'place' | 'break';
+  action: 'place' | 'break' | 'use';
   x: number;
   y: number;
   z: number;
@@ -197,6 +205,7 @@ export type ErrorCode =
   | 'out_of_range'
   | 'unreachable'
   | 'invalid_block'
+  | 'invalid_use'
   | 'unbreakable'
   | 'nothing_to_edit'
   | 'sign_not_found'
@@ -262,7 +271,9 @@ export function sanitizeSignText(
 ): string {
   if (typeof raw !== 'string') return '';
   // Collapse horizontal whitespace runs (keep explicit newlines for signs).
-  const cleaned = stripControls(raw).replace(/[^\S\n]{2,}/g, ' ').replace(/\r/g, '');
+  const cleaned = stripControls(raw)
+    .replace(/[^\S\n]{2,}/g, ' ')
+    .replace(/\r/g, '');
   const out: string[] = [];
   for (const rawLine of cleaned.split('\n')) {
     const line = rawLine.trim().slice(0, maxLineLen);
@@ -318,13 +329,7 @@ export function isValidEditId(v: unknown): v is string {
 }
 
 export function isPlaceableBlockId(v: unknown): v is number {
-  return (
-    typeof v === 'number' &&
-    Number.isInteger(v) &&
-    v !== BlockId.Air &&
-    v !== BlockId.Bedrock &&
-    (Object.values(BlockId) as number[]).includes(v)
-  );
+  return typeof v === 'number' && isPlaceable(v);
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +337,9 @@ export function isPlaceableBlockId(v: unknown): v is number {
 // ---------------------------------------------------------------------------
 
 function asRecord(v: unknown): Record<string, unknown> | null {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : null;
 }
 
 export function parseWireFrame(text: string): ValidResult<unknown> {
@@ -359,9 +366,15 @@ export function validateClientMessage(v: unknown): ValidResult<ClientMessage> {
     }
     case 'pos': {
       const { x, y, z, yaw, pitch } = o as Record<string, unknown>;
-      if (!isFiniteNum(x) || !isFiniteNum(y) || !isFiniteNum(z)) return invalid('pos requires finite xyz');
+      if (!isFiniteNum(x) || !isFiniteNum(y) || !isFiniteNum(z))
+        return invalid('pos requires finite xyz');
       if (!isFiniteNum(yaw) || !isFiniteNum(pitch)) return invalid('pos requires finite angles');
-      if (Math.abs(x) > MAX_WORLD_COORD + 64 || Math.abs(z) > MAX_WORLD_COORD + 64 || y < -64 || y > WORLD_HEIGHT + 256) {
+      if (
+        Math.abs(x) > MAX_WORLD_COORD + 64 ||
+        Math.abs(z) > MAX_WORLD_COORD + 64 ||
+        y < -64 ||
+        y > WORLD_HEIGHT + 256
+      ) {
         return invalid('pos out of bounds');
       }
       return valid({ t: 'pos', x, y, z, yaw, pitch });
@@ -374,7 +387,11 @@ export function validateClientMessage(v: unknown): ValidResult<ClientMessage> {
       const x = o['x'];
       const y = o['y'];
       const z = o['z'];
-      if (!isIntIn(x, -MAX_WORLD_COORD, MAX_WORLD_COORD) || !isIntIn(y, 0, WORLD_HEIGHT - 1) || !isIntIn(z, -MAX_WORLD_COORD, MAX_WORLD_COORD)) {
+      if (
+        !isIntIn(x, -MAX_WORLD_COORD, MAX_WORLD_COORD) ||
+        !isIntIn(y, 0, WORLD_HEIGHT - 1) ||
+        !isIntIn(z, -MAX_WORLD_COORD, MAX_WORLD_COORD)
+      ) {
         return invalid('coordinates out of range');
       }
       if (action === 'place') {
@@ -384,6 +401,15 @@ export function validateClientMessage(v: unknown): ValidResult<ClientMessage> {
       }
       return valid({ t: 'edit', eid, action, x, y, z });
     }
+    case 'use': {
+      const eid = o['eid'];
+      if (!isValidEditId(eid)) return invalid('eid malformed');
+      const x = o['x'];
+      const y = o['y'];
+      const z = o['z'];
+      if (!isValidWorldCoord(x, y, z)) return invalid('coordinates out of range');
+      return valid({ t: 'use', eid, x: x as number, y: y as number, z: z as number });
+    }
     case 'sign': {
       const eid = o['eid'];
       if (!isValidEditId(eid)) return invalid('eid malformed');
@@ -392,7 +418,11 @@ export function validateClientMessage(v: unknown): ValidResult<ClientMessage> {
       const x = o['x'];
       const y = o['y'];
       const z = o['z'];
-      if (!isIntIn(x, -MAX_WORLD_COORD, MAX_WORLD_COORD) || !isIntIn(y, 0, WORLD_HEIGHT - 1) || !isIntIn(z, -MAX_WORLD_COORD, MAX_WORLD_COORD)) {
+      if (
+        !isIntIn(x, -MAX_WORLD_COORD, MAX_WORLD_COORD) ||
+        !isIntIn(y, 0, WORLD_HEIGHT - 1) ||
+        !isIntIn(z, -MAX_WORLD_COORD, MAX_WORLD_COORD)
+      ) {
         return invalid('coordinates out of range');
       }
       if (op === 'remove') return valid({ t: 'sign', eid, op, x, y, z });

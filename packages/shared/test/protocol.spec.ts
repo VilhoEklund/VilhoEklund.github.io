@@ -63,7 +63,8 @@ describe('text sanitization', () => {
   });
 
   it('sign text keeps at most N non-empty lines with capped length', () => {
-    const text = 'first\n\nsecond line that is way too long for a sign panel honestly\nthird\nfourth';
+    const text =
+      'first\n\nsecond line that is way too long for a sign panel honestly\nthird\nfourth';
     const out = sanitizeSignText(text);
     const lines = out.split('\n');
     expect(lines.length).toBeLessThanOrEqual(SIGN_MAX_LINES);
@@ -83,9 +84,19 @@ describe('text sanitization', () => {
 
 describe('message validation', () => {
   it('validates a hello message', () => {
-    const r = validateClientMessage({ t: 'hello', proto: 1, name: 'Ada', playerId: 'abcdefgh12345678' });
+    const r = validateClientMessage({
+      t: 'hello',
+      proto: 1,
+      name: 'Ada',
+      playerId: 'abcdefgh12345678',
+    });
     expect(r.ok).toBe(true);
-    const bad = validateClientMessage({ t: 'hello', proto: 99, name: 'Ada', playerId: 'abcdefgh12345678' });
+    const bad = validateClientMessage({
+      t: 'hello',
+      proto: 99,
+      name: 'Ada',
+      playerId: 'abcdefgh12345678',
+    });
     expect(bad.ok).toBe(false);
   });
 
@@ -105,6 +116,16 @@ describe('message validation', () => {
     expect(validateClientMessage({ ...place, block: 0 }).ok).toBe(false); // air
     expect(validateClientMessage({ ...place, block: 999 }).ok).toBe(false);
     expect(validateClientMessage(place).ok).toBe(false); // missing
+    expect(validateClientMessage({ ...place, block: 14 }).ok).toBe(true); // wool
+    expect(validateClientMessage({ ...place, block: 56 }).ok).toBe(false); // internal door top
+  });
+
+  it('validates use messages for interactive blocks', () => {
+    expect(validateClientMessage({ t: 'use', eid: 'use00000001', x: 1, y: 2, z: 3 }).ok).toBe(true);
+    expect(validateClientMessage({ t: 'use', eid: 'short', x: 1, y: 2, z: 3 }).ok).toBe(false);
+    expect(validateClientMessage({ t: 'use', eid: 'use00000002', x: 1, y: -1, z: 3 }).ok).toBe(
+      false,
+    );
   });
 
   it('sanitizes sign text inside messages', () => {

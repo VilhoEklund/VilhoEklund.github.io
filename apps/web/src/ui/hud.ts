@@ -1,4 +1,4 @@
-import { BLOCKS, HOTBAR_BLOCKS } from '@eternal-blocks/shared';
+import { BLOCKS, HOTBAR_BLOCKS, INVENTORY_BLOCKS } from '@eternal-blocks/shared';
 import type { AtlasResult } from '../game/textures.ts';
 import { TILE_INDEX, BLOCK_TILES, TILE_PX, ATLAS_COLS } from '../game/textures.ts';
 
@@ -15,7 +15,7 @@ function loadHotbar(): HotbarSlot[] {
     if (!raw) return defaults;
     const saved: unknown = JSON.parse(raw);
     if (!Array.isArray(saved) || saved.length !== HOTBAR_BLOCKS.length) return defaults;
-    const available = new Set(HOTBAR_BLOCKS);
+    const available = new Set(INVENTORY_BLOCKS);
     if (
       !saved.every(
         (blockId) => blockId === null || (typeof blockId === 'number' && available.has(blockId)),
@@ -222,7 +222,7 @@ export class Hud {
 
     const palette = document.createElement('div');
     palette.className = 'inventory-palette';
-    HOTBAR_BLOCKS.forEach((blockId) => {
+    INVENTORY_BLOCKS.forEach((blockId) => {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'inventory-block';

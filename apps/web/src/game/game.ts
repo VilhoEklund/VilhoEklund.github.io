@@ -6,6 +6,7 @@ import {
   POS_SEND_INTERVAL_MS,
   TerrainGenerator,
   WORLD_HEIGHT,
+  blockSelectionBoxes,
   type PlayerRosterEntry,
   type ServerMessage,
 } from '@eternal-blocks/shared';
@@ -500,6 +501,7 @@ export class Game {
     if (e.button === 0) {
       this.interaction.tryBreak(hit);
     } else if (e.button === 2) {
+      if (this.interaction.tryUse(hit)) return;
       if (this.world.getBlock(hit.x, hit.y, hit.z) === BlockId.Sign) {
         this.releasePointerForModal();
         const sign = this.signsR.get(hit.x, hit.y, hit.z);
@@ -609,8 +611,21 @@ export class Game {
       const look = this.player.lookDirection();
       const hit = this.interaction.targetFromCamera(eye, look);
       if (hit) {
+        const block = this.world.getBlock(hit.x, hit.y, hit.z);
+        const boxes = blockSelectionBoxes(block);
+        const minX = boxes.length > 0 ? Math.min(...boxes.map((box) => box.minX)) : 0;
+        const minY = boxes.length > 0 ? Math.min(...boxes.map((box) => box.minY)) : 0;
+        const minZ = boxes.length > 0 ? Math.min(...boxes.map((box) => box.minZ)) : 0;
+        const maxX = boxes.length > 0 ? Math.max(...boxes.map((box) => box.maxX)) : 1;
+        const maxY = boxes.length > 0 ? Math.max(...boxes.map((box) => box.maxY)) : 1;
+        const maxZ = boxes.length > 0 ? Math.max(...boxes.map((box) => box.maxZ)) : 1;
         this.highlight.visible = true;
-        this.highlight.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+        this.highlight.position.set(
+          hit.x + (minX + maxX) / 2,
+          hit.y + (minY + maxY) / 2,
+          hit.z + (minZ + maxZ) / 2,
+        );
+        this.highlight.scale.set(maxX - minX, maxY - minY, maxZ - minZ);
       } else {
         this.highlight.visible = false;
       }
