@@ -1,6 +1,5 @@
 import {
   BlockId,
-  HOTBAR_BLOCKS,
   PLAYER_REACH,
   distanceSqToBlockCenter,
   type ClientMessage,
@@ -64,7 +63,7 @@ export function newEid(): string {
  * reconnect never duplicates mutations.
  */
 export class Interaction {
-  selectedSlot = 0;
+  selectedBlock: number | null = null;
 
   private pending = new Map<string, PendingOp>();
 
@@ -76,10 +75,6 @@ export class Interaction {
     private readonly hooks: InteractionHooks,
     private readonly opts: InteractionOptions,
   ) {}
-
-  get selectedBlock(): number {
-    return HOTBAR_BLOCKS[this.selectedSlot % HOTBAR_BLOCKS.length] ?? BlockId.Stone;
-  }
 
   targetFromCamera(
     eye: { x: number; y: number; z: number },
@@ -118,6 +113,11 @@ export class Interaction {
   }
 
   tryPlace(hit: RayHit): void {
+    const block = this.selectedBlock;
+    if (block === null) {
+      this.hooks.toast('That hotbar slot is empty.', 'info');
+      return;
+    }
     const x = hit.x + hit.nx;
     const y = hit.y + hit.ny;
     const z = hit.z + hit.nz;
@@ -138,7 +138,6 @@ export class Interaction {
       this.hooks.toast('Not enough room.', 'error');
       return;
     }
-    const block = this.selectedBlock;
     const eid = newEid();
     const frame: ClientMessage = { t: 'edit', eid, action: 'place', x, y, z, block };
     this.applyLocal(x, y, z, block);

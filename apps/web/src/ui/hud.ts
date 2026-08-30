@@ -4,6 +4,31 @@ import { TILE_INDEX, BLOCK_TILES, TILE_PX, ATLAS_COLS } from '../game/textures.t
 
 export type ToastKind = 'info' | 'error' | 'good';
 
+type HotbarSlot = number | null;
+
+const HOTBAR_STORAGE_KEY = 'eternal-blocks.hotbar.v1';
+
+function loadHotbar(): HotbarSlot[] {
+  const defaults: HotbarSlot[] = [...HOTBAR_BLOCKS];
+  try {
+    const raw = localStorage.getItem(HOTBAR_STORAGE_KEY);
+    if (!raw) return defaults;
+    const saved: unknown = JSON.parse(raw);
+    if (!Array.isArray(saved) || saved.length !== HOTBAR_BLOCKS.length) return defaults;
+    const available = new Set(HOTBAR_BLOCKS);
+    if (
+      !saved.every(
+        (blockId) => blockId === null || (typeof blockId === 'number' && available.has(blockId)),
+      )
+    ) {
+      return defaults;
+    }
+    return saved as HotbarSlot[];
+  } catch {
+    return defaults;
+  }
+}
+
 /**
  * In-game HUD: crosshair, hotbar, status chip, coordinates, online list,
  * chat log/input and toast notifications. All dynamic strings are inserted
@@ -18,6 +43,8 @@ export class Hud {
   private coordsEl!: HTMLDivElement;
   private hotbarEl!: HTMLDivElement;
   private slots: HTMLDivElement[] = [];
+  private inventoryEl!: HTMLDivElement;
+  private inventorySlots: HTMLDivElement[] = [];
   private toastsEl!: HTMLDivElement;
   private playerListEl!: HTMLDivElement;
   private playerListUl!: HTMLUListElement;
@@ -26,10 +53,15 @@ export class Hud {
   private chatLog!: HTMLDivElement;
   private chatInput!: HTMLInputElement;
 
-  onHotbarSelect: ((slot: number) => void) | null = null;
+  onHotbarSelect: ((slot: number, blockId: number | null) => void) | null = null;
+  onInventoryClose: (() => void) | null = null;
   onChatSend: ((text: string) => void) | null = null;
 
   private selectedSlot = 0;
+  private hotbar: HotbarSlot[] = loadHotbar();
+  private inventoryOpen = false;
+  private dragged:
+    { source: 'palette'; blockId: number } | { source: 'hotbar'; slot: number } | null = null;
   private chatOpen = false;
   private history: string[] = [];
   private historyIdx = -1;
@@ -81,7 +113,7 @@ export class Hud {
     this.hotbarEl = document.createElement('div');
     this.hotbarEl.className = 'hotbar glass clickable';
     this.hotbarEl.id = 'hotbar';
-    HOTBAR_BLOCKS.forEach((blockId, i) => {
+    this.hotbar.forEach((_blockId, i) => {
       const slot = document.createElement('div');
       slot.className = 'slot';
       slot.dataset.slot = String(i);
@@ -91,16 +123,16 @@ export class Hud {
       const icon = document.createElement('canvas');
       icon.width = TILE_PX;
       icon.height = TILE_PX;
-      this.drawBlockIcon(icon, blockId);
       const label = document.createElement('span');
       label.className = 'label';
-      label.textContent = BLOCKS[blockId]?.name ?? '?';
       slot.append(num, icon, label);
       slot.addEventListener('click', () => this.selectSlot(i));
       this.slots.push(slot);
       this.hotbarEl.appendChild(slot);
     });
     this.root.appendChild(this.hotbarEl);
+
+    this.buildInventory();
 
     this.chatWrap = document.createElement('div');
     this.chatWrap.className = 'chat-wrap';
@@ -127,7 +159,10 @@ export class Hud {
         this.closeChatInput();
       } else if (e.key === 'ArrowUp') {
         if (this.history.length > 0) {
-          this.historyIdx = Math.max(0, this.historyIdx < 0 ? this.history.length - 1 : this.historyIdx - 1);
+          this.historyIdx = Math.max(
+            0,
+            this.historyIdx < 0 ? this.history.length - 1 : this.historyIdx - 1,
+          );
           this.chatInput.value = this.history[this.historyIdx] ?? '';
         }
       } else if (e.key === 'ArrowDown') {
@@ -148,11 +183,165 @@ export class Hud {
     this.toastsEl.className = 'toasts';
     this.toastsEl.id = 'toasts';
     this.root.appendChild(this.toastsEl);
+
+    this.renderHotbar();
+  }
+
+  private buildInventory(): void {
+    this.inventoryEl = document.createElement('div');
+    this.inventoryEl.className = 'inventory-backdrop clickable hidden';
+    this.inventoryEl.id = 'inventory';
+    this.inventoryEl.setAttribute('role', 'dialog');
+    this.inventoryEl.setAttribute('aria-modal', 'true');
+    this.inventoryEl.setAttribute('aria-label', 'Block inventory');
+
+    const panel = document.createElement('section');
+    panel.className = 'inventory-panel glass glass-strong';
+    panel.addEventListener('click', (e) => e.stopPropagation());
+
+    const heading = document.createElement('div');
+    heading.className = 'inventory-heading';
+    const titleWrap = document.createElement('div');
+    const title = document.createElement('h2');
+    title.textContent = 'Block inventory';
+    const hint = document.createElement('p');
+    hint.textContent = 'Drag a block into a hotbar slot. Drag slots to rearrange them.';
+    titleWrap.append(title, hint);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'inventory-close';
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Close inventory');
+    close.addEventListener('click', () => this.onInventoryClose?.());
+    heading.append(titleWrap, close);
+    panel.appendChild(heading);
+
+    const paletteTitle = document.createElement('h3');
+    paletteTitle.textContent = 'Available blocks';
+    panel.appendChild(paletteTitle);
+
+    const palette = document.createElement('div');
+    palette.className = 'inventory-palette';
+    HOTBAR_BLOCKS.forEach((blockId) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'inventory-block';
+      item.draggable = true;
+      item.title = `${BLOCKS[blockId]?.name ?? 'Block'} — drag to a hotbar slot`;
+      const icon = document.createElement('canvas');
+      icon.width = TILE_PX;
+      icon.height = TILE_PX;
+      this.drawBlockIcon(icon, blockId);
+      const label = document.createElement('span');
+      label.textContent = BLOCKS[blockId]?.name ?? '?';
+      item.append(icon, label);
+      item.addEventListener('click', () => this.setHotbarSlot(this.selectedSlot, blockId));
+      item.addEventListener('dragstart', (e) => {
+        this.dragged = { source: 'palette', blockId };
+        e.dataTransfer?.setData('text/plain', String(blockId));
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend', () => {
+        this.dragged = null;
+        item.classList.remove('dragging');
+        this.clearDropHighlights();
+      });
+      palette.appendChild(item);
+    });
+    panel.appendChild(palette);
+
+    const hotbarTitle = document.createElement('div');
+    hotbarTitle.className = 'inventory-hotbar-title';
+    const hotbarHeading = document.createElement('h3');
+    hotbarHeading.textContent = 'Hotbar';
+    const hotbarHint = document.createElement('span');
+    hotbarHint.textContent = 'Right-click a slot to empty it';
+    hotbarTitle.append(hotbarHeading, hotbarHint);
+    panel.appendChild(hotbarTitle);
+
+    const row = document.createElement('div');
+    row.className = 'inventory-hotbar';
+    this.hotbar.forEach((_blockId, i) => {
+      const slot = document.createElement('div');
+      slot.className = 'inventory-slot';
+      slot.dataset.slot = String(i);
+      slot.tabIndex = 0;
+      slot.setAttribute('role', 'button');
+      const num = document.createElement('span');
+      num.className = 'num';
+      num.textContent = String((i + 1) % 10);
+      const icon = document.createElement('canvas');
+      icon.width = TILE_PX;
+      icon.height = TILE_PX;
+      const label = document.createElement('span');
+      label.className = 'inventory-slot-label';
+      slot.append(num, icon, label);
+      slot.addEventListener('click', () => this.selectSlot(i));
+      slot.addEventListener('keydown', (e) => {
+        if (e.code === 'Enter' || e.code === 'Space') {
+          e.preventDefault();
+          this.selectSlot(i);
+        } else if (e.code === 'Delete' || e.code === 'Backspace') {
+          e.preventDefault();
+          this.setHotbarSlot(i, null);
+        }
+      });
+      slot.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.setHotbarSlot(i, null);
+      });
+      slot.addEventListener('dragstart', (e) => {
+        if (this.hotbar[i] === null) {
+          e.preventDefault();
+          return;
+        }
+        this.dragged = { source: 'hotbar', slot: i };
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        slot.classList.add('dragging');
+      });
+      slot.addEventListener('dragover', (e) => {
+        if (!this.dragged) return;
+        e.preventDefault();
+        if (e.dataTransfer)
+          e.dataTransfer.dropEffect = this.dragged.source === 'palette' ? 'copy' : 'move';
+        slot.classList.add('drop-target');
+      });
+      slot.addEventListener('dragleave', () => slot.classList.remove('drop-target'));
+      slot.addEventListener('drop', (e) => {
+        e.preventDefault();
+        slot.classList.remove('drop-target');
+        if (!this.dragged) return;
+        if (this.dragged.source === 'palette') {
+          this.setHotbarSlot(i, this.dragged.blockId);
+        } else {
+          this.swapHotbarSlots(this.dragged.slot, i);
+        }
+      });
+      slot.addEventListener('dragend', () => {
+        this.dragged = null;
+        slot.classList.remove('dragging');
+        this.clearDropHighlights();
+      });
+      this.inventorySlots.push(slot);
+      row.appendChild(slot);
+    });
+    panel.appendChild(row);
+
+    const footer = document.createElement('p');
+    footer.className = 'inventory-footer';
+    footer.textContent = 'Click a block to put it in the selected slot · E or Esc to close';
+    panel.appendChild(footer);
+
+    this.inventoryEl.appendChild(panel);
+    this.inventoryEl.addEventListener('click', () => this.onInventoryClose?.());
+    this.root.appendChild(this.inventoryEl);
   }
 
   /** Composite a simple isometric-ish block icon from atlas tiles. */
   private drawBlockIcon(canvas: HTMLCanvasElement, blockId: number): void {
     const g = canvas.getContext('2d')!;
+    g.clearRect(0, 0, canvas.width, canvas.height);
     g.imageSmoothingEnabled = false;
     const tiles = BLOCK_TILES[blockId];
     if (!tiles) return;
@@ -175,13 +364,79 @@ export class Hud {
 
   selectSlot(slot: number): void {
     this.selectedSlot = slot % HOTBAR_BLOCKS.length;
-    this.slots.forEach((el, i) => el.classList.toggle('selected', i === this.selectedSlot));
-    this.onHotbarSelect?.(this.selectedSlot);
+    this.renderHotbar();
+    this.onHotbarSelect?.(this.selectedSlot, this.hotbar[this.selectedSlot] ?? null);
   }
 
   cycleSlot(delta: number): void {
     const n = HOTBAR_BLOCKS.length;
-    this.selectSlot(((this.selectedSlot + delta) % n + n) % n);
+    this.selectSlot((((this.selectedSlot + delta) % n) + n) % n);
+  }
+
+  openInventory(): void {
+    this.inventoryOpen = true;
+    this.inventoryEl.classList.remove('hidden');
+    this.renderHotbar();
+  }
+
+  closeInventory(): void {
+    this.inventoryOpen = false;
+    this.dragged = null;
+    this.inventoryEl.classList.add('hidden');
+    this.clearDropHighlights();
+  }
+
+  get isInventoryOpen(): boolean {
+    return this.inventoryOpen;
+  }
+
+  private setHotbarSlot(slot: number, blockId: HotbarSlot): void {
+    this.hotbar[slot] = blockId;
+    this.persistHotbar();
+    this.selectSlot(slot);
+  }
+
+  private swapHotbarSlots(from: number, to: number): void {
+    if (from === to) return;
+    [this.hotbar[from], this.hotbar[to]] = [this.hotbar[to] ?? null, this.hotbar[from] ?? null];
+    this.persistHotbar();
+    this.selectSlot(to);
+  }
+
+  private persistHotbar(): void {
+    try {
+      localStorage.setItem(HOTBAR_STORAGE_KEY, JSON.stringify(this.hotbar));
+    } catch {
+      // Storage may be disabled; the inventory still works for this session.
+    }
+  }
+
+  private renderHotbar(): void {
+    const renderSlot = (slot: HTMLDivElement, i: number, inventory: boolean): void => {
+      const blockId = this.hotbar[i] ?? null;
+      const canvas = slot.querySelector('canvas');
+      const label = slot.querySelector(inventory ? '.inventory-slot-label' : '.label');
+      if (canvas instanceof HTMLCanvasElement) {
+        const g = canvas.getContext('2d');
+        g?.clearRect(0, 0, canvas.width, canvas.height);
+        if (blockId !== null) this.drawBlockIcon(canvas, blockId);
+      }
+      if (label) label.textContent = blockId === null ? 'Empty' : (BLOCKS[blockId]?.name ?? '?');
+      slot.classList.toggle('empty', blockId === null);
+      slot.classList.toggle('selected', i === this.selectedSlot);
+      slot.draggable = inventory && blockId !== null;
+      const name = blockId === null ? 'Empty' : (BLOCKS[blockId]?.name ?? 'Unknown block');
+      slot.setAttribute('aria-label', `Hotbar slot ${(i + 1) % 10}: ${name}`);
+      if (inventory)
+        slot.title =
+          blockId === null ? 'Empty slot' : `${name} — drag to move, right-click to empty`;
+    };
+    this.slots.forEach((slot, i) => renderSlot(slot, i, false));
+    this.inventorySlots.forEach((slot, i) => renderSlot(slot, i, true));
+  }
+
+  private clearDropHighlights(): void {
+    this.inventorySlots.forEach((slot) => slot.classList.remove('drop-target'));
   }
 
   setStatus(state: 'ok' | 'wait' | 'bad', label: string): void {
@@ -190,7 +445,8 @@ export class Hud {
   }
 
   setOnline(count: number): void {
-    this.onlineEl.textContent = count === 1 ? 'You are alone in the world' : `${count} builders online`;
+    this.onlineEl.textContent =
+      count === 1 ? 'You are alone in the world' : `${count} builders online`;
   }
 
   setCoords(x: number, y: number, z: number, fps: number): void {

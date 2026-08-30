@@ -116,9 +116,10 @@ export class Game {
     this.atlas = buildAtlas();
     this.hud = new Hud(this.atlas);
     this.opts.uiRoot.appendChild(this.hud.root);
-    this.hud.onHotbarSelect = (slot) => {
-      if (this.interaction) this.interaction.selectedSlot = slot;
+    this.hud.onHotbarSelect = (_slot, blockId) => {
+      if (this.interaction) this.interaction.selectedBlock = blockId;
     };
+    this.hud.onInventoryClose = () => this.closeInventory();
     // Created eagerly (not in connect()) so UI glue can subscribe to net
     // events immediately after construction, before the socket opens.
     this.net = new NetClient(opts.serverUrl);
@@ -446,7 +447,7 @@ export class Game {
   };
 
   private get modalOrMenuOpen(): boolean {
-    return pauseMenuIsOpen() || helpIsOpen() || signModalIsOpen();
+    return pauseMenuIsOpen() || helpIsOpen() || signModalIsOpen() || this.hud.isInventoryOpen;
   }
 
   private onCanvasClick = (): void => {
@@ -511,6 +512,16 @@ export class Game {
 
   private onKeyPress = (code: string): void => {
     if (!this.playing) return;
+    if (code === 'KeyE') {
+      if (this.hud.isInventoryOpen) this.closeInventory();
+      else if (!this.modalOrMenuOpen) this.openInventory();
+      return;
+    }
+    if (code === 'Escape' && this.hud.isInventoryOpen) {
+      this.closeInventory();
+      return;
+    }
+    if (this.hud.isInventoryOpen) return;
     if (code.startsWith('Digit')) {
       const n = Number(code.slice(5));
       this.hud.selectSlot(n === 0 ? 9 : n - 1);
@@ -529,6 +540,18 @@ export class Game {
       return;
     }
   };
+
+  private openInventory(): void {
+    if (!this.playing || this.modalOrMenuOpen) return;
+    this.hud.openInventory();
+    this.releasePointerForModal();
+  }
+
+  private closeInventory(): void {
+    if (!this.hud.isInventoryOpen) return;
+    this.hud.closeInventory();
+    this.requestLock();
+  }
 
   // ---------------------------------------------------------------
   // Frame loop

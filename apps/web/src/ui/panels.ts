@@ -317,6 +317,7 @@ export function buildHelpOverlay(): HelpOverlay {
     ['Right click', 'Place selected block'],
     ['Right click a sign', 'Read or edit the sign'],
     ['1 – 0 / wheel', 'Select hotbar slot'],
+    ['E', 'Open block inventory'],
     ['Space', 'Jump / swim up'],
     ['Shift', 'Sprint'],
     ['C / Ctrl', 'Crouch'],
