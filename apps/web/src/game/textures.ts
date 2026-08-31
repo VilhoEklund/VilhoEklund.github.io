@@ -195,13 +195,10 @@ function speckle(ctx: PainterCtx, color: RGB, count: number, alpha = 255): void 
 
 function woolPainter(base: RGB): (ctx: PainterCtx) => void {
   return (ctx) => {
-    fillNoise(ctx, base, 0.08);
-    for (let y = 1; y < ctx.size; y += 4) {
-      for (let x = (y % 8) / 4; x < ctx.size; x += 4) {
-        setPx(ctx, x, y, shade(base, 0.82));
-        setPx(ctx, x + 1, y - 1, shade(base, 1.1));
-      }
-    }
+    // Keep wool visually soft without isolated high-contrast stitches. Those
+    // tiny dark/light pairs read as black or as a different hue once the 16 px
+    // tile is scaled in the inventory and at oblique angles in the world.
+    fillNoise(ctx, base, 0.025);
   };
 }
 
@@ -425,6 +422,14 @@ export interface AtlasResult {
   canvas: HTMLCanvasElement;
 }
 
+/** Paint one deterministic tile. Exported for palette regression tests and previews. */
+export function paintTextureTile(name: TileName): Uint8ClampedArray {
+  const tileData = new Uint8ClampedArray(TILE_PX * TILE_PX * 4);
+  const rng = mulberry32(hashString(`eb-tile/${name}`));
+  PAINTERS[name]({ data: tileData, size: TILE_PX, rng });
+  return tileData;
+}
+
 /** Paint the atlas and wrap it in a THREE texture (nearest-neighbor filtering). */
 export function buildAtlas(): AtlasResult {
   const canvas = document.createElement('canvas');
@@ -436,9 +441,7 @@ export function buildAtlas(): AtlasResult {
   for (const [name, idx] of Object.entries(TILE_INDEX) as Array<[TileName, number]>) {
     const col = idx % ATLAS_COLS;
     const row = Math.floor(idx / ATLAS_COLS);
-    const tileData = new Uint8ClampedArray(TILE_PX * TILE_PX * 4);
-    const rng = mulberry32(hashString(`eb-tile/${name}`));
-    PAINTERS[name]({ data: tileData, size: TILE_PX, rng });
+    const tileData = paintTextureTile(name);
     // Copy rows into the atlas image.
     for (let y = 0; y < TILE_PX; y++) {
       const srcStart = y * TILE_PX * 4;
